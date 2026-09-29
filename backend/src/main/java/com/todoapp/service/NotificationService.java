@@ -7,6 +7,7 @@ import com.todoapp.exception.ResourceNotFoundException;
 import com.todoapp.repository.TaskNotificationRepository;
 import com.todoapp.repository.TaskRepository;
 import com.todoapp.security.CurrentUser;
+import com.todoapp.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,9 @@ public class NotificationService {
     private final TaskRepository taskRepository;
     private final TaskNotificationRepository notificationRepository;
     private final CurrentUser currentUser;
+    private final UserRepository userRepository;
+    private final RealtimeEventService realtimeEventService;
+    private final EmailDeliveryService emailDeliveryService;
 
     @Scheduled(fixedDelayString = "${app.reminders.poll-ms:30000}")
     public void dispatchDueReminders() {
@@ -31,13 +35,18 @@ public class NotificationService {
                 .findTop100ByDeletedAtIsNullAndStatusNotAndReminderAtLessThanEqualAndReminderSentFalseOrderByReminderAtAsc(
                         TaskStatus.COMPLETED, LocalDateTime.now(Clock.systemUTC()))
                 .forEach(task -> {
-                    notificationRepository.save(TaskNotificationEntity.builder()
+                    var recipient = task.getAssigneeEmail() == null ? java.util.Optional.<com.todoapp.entity.UserEntity>empty()
+                            : userRepository.findByEmailIgnoreCase(task.getAssigneeEmail());
+                    String recipientId = recipient.map(com.todoapp.entity.UserEntity::getId).orElse(task.getOwnerId());
+                    TaskNotificationEntity notification = notificationRepository.save(TaskNotificationEntity.builder()
                             .id(UUID.randomUUID().toString())
-                            .ownerId(task.getOwnerId())
+                            .ownerId(recipientId)
                             .taskId(task.getId())
                             .title(task.getTitle())
                             .message("Đến giờ thực hiện công việc" + (task.getTime() == null ? "" : " lúc " + task.getTime()))
                             .build());
+                    realtimeEventService.user(recipientId, "notification.created", map(notification));
+                    recipient.ifPresent(user -> emailDeliveryService.sendTaskReminder(user.getEmail(), task.getTitle(), task.getTime()));
                     task.setReminderSent(true);
                     taskRepository.save(task);
                 });

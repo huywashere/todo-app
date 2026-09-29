@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Check,
   Calendar,
@@ -9,9 +9,13 @@ import {
   Inbox,
   X,
   ListTodo,
-  RotateCcw
+  RotateCcw,
+  MessageCircle,
+  Paperclip,
+  Download
 } from 'lucide-react';
-import type { Task, TaskPriority, TaskList } from '../types/todo';
+import type { Task, TaskPriority, TaskList, TaskAttachment, TaskComment } from '../types/todo';
+import { apiService } from '../services/api';
 
 function utcToLocalInput(value?: string) {
   if (!value) return '';
@@ -52,6 +56,20 @@ export const TickTickDetailPane: React.FC<TickTickDetailPaneProps> = ({
   onClose
 }) => {
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
+  const [comments, setComments] = useState<TaskComment[]>([]);
+  const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
+  const [commentBody, setCommentBody] = useState('');
+  const [collaborationError, setCollaborationError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!task?.id || task.deletedAt) { setComments([]); setAttachments([]); return; }
+    let active = true;
+    void Promise.all([apiService.getComments(task.id), apiService.getAttachments(task.id)])
+      .then(([loadedComments, loadedAttachments]) => { if (active) { setComments(loadedComments); setAttachments(loadedAttachments); } })
+      .catch(() => { if (active) setCollaborationError('Không thể tải bình luận hoặc tệp đính kèm khi offline.'); });
+    return () => { active = false; };
+  }, [task?.id, task?.deletedAt]);
 
   if (!task) {
     return (
@@ -96,6 +114,16 @@ export const TickTickDetailPane: React.FC<TickTickDetailPaneProps> = ({
   };
 
   const listName = lists.find(l => l.id === task.listId)?.name || 'Inbox';
+  const addComment = async (event: React.FormEvent) => {
+    event.preventDefault(); if (!commentBody.trim()) return;
+    try { const created = await apiService.addComment(task.id, commentBody.trim()); setComments(values => [...values, created]); setCommentBody(''); }
+    catch { setCollaborationError('Không thể gửi bình luận.'); }
+  };
+  const uploadFile = async (file?: File) => {
+    if (!file) return;
+    try { const created = await apiService.uploadAttachment(task.id, file); setAttachments(values => [...values, created]); }
+    catch { setCollaborationError('Tải tệp lên thất bại. Kiểm tra giới hạn 10 MB và kết nối mạng.'); }
+  };
 
   return (
     <aside className="tt-detail-pane animate-fade">
@@ -175,7 +203,17 @@ export const TickTickDetailPane: React.FC<TickTickDetailPaneProps> = ({
               <option value="DAILY">Daily</option>
               <option value="WEEKLY">Weekly</option>
               <option value="MONTHLY">Monthly</option>
+              <option value="WEEKDAYS">Weekdays</option>
+              <option value="MONTHLY_LAST_DAY">Last day of month</option>
             </select>
+          </label>
+          <label>
+            Every
+            <input type="number" min="1" max="365" value={task.recurrenceInterval || 1} onChange={event => onUpdateTask(task.id, { recurrenceInterval: Math.max(1, Number(event.target.value) || 1) })} />
+          </label>
+          <label>
+            Repeat until
+            <input type="date" value={task.recurrenceEndDate || ''} onChange={event => onUpdateTask(task.id, { recurrenceEndDate: event.target.value || undefined })} />
           </label>
           <label>
             List
@@ -238,6 +276,25 @@ export const TickTickDetailPane: React.FC<TickTickDetailPaneProps> = ({
             />
           </form>
         </div>
+
+        {!task.deletedAt && <section className="collaboration-section">
+          <header><span><Paperclip size={15} /> Attachments</span><button type="button" className="secondary-action" onClick={() => fileInputRef.current?.click()}>Add file</button></header>
+          <input ref={fileInputRef} type="file" hidden onChange={event => { void uploadFile(event.target.files?.[0]); event.currentTarget.value = ''; }} />
+          {attachments.length === 0 ? <p className="collaboration-empty">No attachments yet</p> : attachments.map(attachment => <div className="attachment-row" key={attachment.id}>
+            <Paperclip size={14} /><span>{attachment.fileName}</span><small>{Math.ceil(attachment.sizeBytes / 1024)} KB</small>
+            <button type="button" className="icon-btn-ghost" title="Download" onClick={() => void apiService.downloadAttachment(task.id, attachment.id, attachment.fileName).catch(() => setCollaborationError('Không thể tải tệp đính kèm.'))}><Download size={14} /></button>
+            <button type="button" className="icon-btn-ghost" onClick={() => void apiService.deleteAttachment(task.id, attachment.id).then(() => setAttachments(values => values.filter(value => value.id !== attachment.id)))}><X size={14} /></button>
+          </div>)}
+        </section>}
+
+        {!task.deletedAt && <section className="collaboration-section">
+          <header><span><MessageCircle size={15} /> Activity & comments</span></header>
+          {comments.length === 0 ? <p className="collaboration-empty">Start a discussion with your workspace.</p> : comments.map(comment => <article className="comment-row" key={comment.id}>
+            <strong>{comment.authorName}</strong><time>{new Date(comment.createdAt).toLocaleString()}</time><p>{comment.body}</p>
+          </article>)}
+          <form className="comment-form" onSubmit={addComment}><input value={commentBody} onChange={event => setCommentBody(event.target.value)} placeholder="Write a comment…" /><button type="submit" className="primary-action">Send</button></form>
+          {collaborationError && <p className="collaboration-error">{collaborationError}</p>}
+        </section>}
       </div>
 
       {/* 3. Detail Bottom Bar */}

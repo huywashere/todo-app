@@ -9,6 +9,7 @@ import com.todoapp.repository.ListRepository;
 import com.todoapp.repository.TaskRepository;
 import com.todoapp.service.ListService;
 import com.todoapp.security.CurrentUser;
+import com.todoapp.service.WorkspaceAccessService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,13 +26,22 @@ public class ListServiceImpl implements ListService {
     private final ListRepository listRepository;
     private final TaskRepository taskRepository;
     private final CurrentUser currentUser;
+    private final WorkspaceAccessService workspaceAccessService;
 
     @Override
     @Transactional(readOnly = true)
-    public List<ListResponse> getAllLists() {
+    public List<ListResponse> getAllLists(String workspaceId) {
         String ownerId = currentUser.id();
-        return listRepository.findByOwnerIdOrderByCreatedAtAsc(ownerId).stream().map(list -> {
-            long taskCount = taskRepository.findByOwnerIdAndListIdAndDeletedAtIsNullOrderBySortOrderAsc(ownerId, list.getId())
+        String resolvedWorkspace = workspaceId == null || workspaceId.isBlank() ? null : workspaceId;
+        List<ListEntity> source;
+        if (resolvedWorkspace != null) {
+            workspaceAccessService.requireMember(resolvedWorkspace);
+            source = listRepository.findByWorkspaceIdOrderByCreatedAtAsc(resolvedWorkspace);
+        } else {
+            source = listRepository.findByOwnerIdOrderByCreatedAtAsc(ownerId);
+        }
+        return source.stream().map(list -> {
+            long taskCount = taskRepository.findByWorkspaceIdAndListIdAndDeletedAtIsNullOrderBySortOrderAsc(list.getWorkspaceId(), list.getId())
                     .stream()
                     .filter(t -> t.getStatus() != TaskStatus.COMPLETED)
                     .count();
@@ -44,6 +54,7 @@ public class ListServiceImpl implements ListService {
                     .hasDot(list.getHasDot())
                     .taskCount(taskCount)
                     .createdAt(list.getCreatedAt())
+                    .workspaceId(list.getWorkspaceId())
                     .build();
         }).collect(Collectors.toList());
     }
@@ -51,12 +62,16 @@ public class ListServiceImpl implements ListService {
     @Override
     public ListResponse createList(CreateListRequest request) {
         String ownerId = currentUser.id();
+        String workspaceId = request.getWorkspaceId() == null || request.getWorkspaceId().isBlank()
+                ? "personal-" + ownerId : request.getWorkspaceId();
+        workspaceAccessService.requireEditor(workspaceId);
         String id = request.getId() != null && request.getId().matches("list-[a-zA-Z0-9-]{8,58}") ?
                 request.getId().trim() : "list-" + UUID.randomUUID();
 
         ListEntity entity = ListEntity.builder()
                 .id(id)
                 .ownerId(ownerId)
+                .workspaceId(workspaceId)
                 .name(request.getName().trim())
                 .emoji(request.getEmoji() != null ? request.getEmoji() : "📁")
                 .color(request.getColor() != null ? request.getColor() : "#4772FA")
@@ -73,15 +88,17 @@ public class ListServiceImpl implements ListService {
                 .hasDot(saved.getHasDot())
                 .taskCount(0)
                 .createdAt(saved.getCreatedAt())
+                .workspaceId(saved.getWorkspaceId())
                 .build();
     }
 
     @Override
     public void deleteList(String id) {
         String ownerId = currentUser.id();
-        ListEntity entity = listRepository.findByIdAndOwnerId(id, ownerId)
+        ListEntity entity = listRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy danh mục với id: " + id));
-        taskRepository.findByOwnerIdAndListIdAndDeletedAtIsNullOrderBySortOrderAsc(ownerId, id)
+        workspaceAccessService.requireEditor(entity.getWorkspaceId());
+        taskRepository.findByWorkspaceIdAndListIdAndDeletedAtIsNullOrderBySortOrderAsc(entity.getWorkspaceId(), id)
                 .forEach(task -> task.setListId("inbox"));
         listRepository.delete(entity);
     }

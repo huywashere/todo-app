@@ -35,6 +35,17 @@ public class RefreshTokenEntity {
     @Column(nullable = false)
     private LocalDateTime expiresAt;
 
+    @Column(length = 120)
+    private String deviceName;
+
+    @Column(length = 500)
+    private String userAgent;
+
+    @Column(length = 64)
+    private String ipAddress;
+
+    private LocalDateTime lastUsedAt;
+
     @Column(nullable = false)
     @Builder.Default
     private boolean revoked = false;

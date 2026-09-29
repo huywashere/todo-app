@@ -22,6 +22,9 @@ public class TaskEntity {
     @Column(nullable = false, length = 64)
     private String ownerId;
 
+    @Column(length = 64)
+    private String workspaceId;
+
     @Column(length = 120)
     private String clientRequestId;
 
@@ -56,6 +59,13 @@ public class TaskEntity {
 
     @Column(length = 32)
     private String recurrenceRule;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private Integer recurrenceInterval = 1;
+
+    @Column(length = 32)
+    private String recurrenceEndDate;
 
     private LocalDateTime reminderAt;
 

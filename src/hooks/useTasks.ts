@@ -33,9 +33,10 @@ function normalizeTask(task: Task): Task {
   };
 }
 
-export function useTasks(syncIdentity: string, currentUserEmail?: string) {
-  storageService.setScope(syncIdentity);
-  syncQueue.setScope(syncIdentity);
+export function useTasks(syncIdentity: string, currentUserEmail?: string, workspaceId?: string) {
+  const scopedIdentity = `${syncIdentity}:${workspaceId || 'personal'}`;
+  storageService.setScope(scopedIdentity);
+  syncQueue.setScope(scopedIdentity);
   const [tasks, setTasks] = useState<Task[]>(() => storageService.loadTasks());
   const [lists, setLists] = useState<TaskList[]>(() => storageService.loadLists());
   const [activeTab, setActiveTab] = useState<MainNavTab>('tasks');
@@ -65,9 +66,9 @@ export function useTasks(syncIdentity: string, currentUserEmail?: string) {
     if (!result.error) {
       try {
         const [active, trash, remoteLists] = await Promise.all([
-          apiService.getTasks(),
-          apiService.getTasks('trash'),
-          apiService.getLists(),
+          apiService.getTasks(undefined, undefined, undefined, workspaceId),
+          apiService.getTasks('trash', undefined, undefined, workspaceId),
+          apiService.getLists(workspaceId),
         ]);
         const remoteTasks = [...active, ...trash].map(normalizeTask);
         setTasks(remoteTasks);
@@ -79,7 +80,7 @@ export function useTasks(syncIdentity: string, currentUserEmail?: string) {
       }
     }
     return !result.error;
-  }, [syncIdentity]);
+  }, [syncIdentity, workspaceId]);
 
   const scheduleSync = useCallback((delay = 150) => {
     setPendingSyncCount(syncQueue.count());
@@ -104,9 +105,9 @@ export function useTasks(syncIdentity: string, currentUserEmail?: string) {
       try {
         await flushPending();
         const [backendTasks, trashedTasks, backendLists] = await Promise.all([
-          apiService.getTasks(),
-          apiService.getTasks('trash'),
-          apiService.getLists()
+          apiService.getTasks(undefined, undefined, undefined, workspaceId),
+          apiService.getTasks('trash', undefined, undefined, workspaceId),
+          apiService.getLists(workspaceId)
         ]);
 
         if (isMounted) {
@@ -133,7 +134,7 @@ export function useTasks(syncIdentity: string, currentUserEmail?: string) {
     return () => {
       isMounted = false;
     };
-  }, [flushPending, syncIdentity]);
+  }, [flushPending, syncIdentity, workspaceId]);
 
   useEffect(() => {
     const handleOnline = () => void flushPending();
@@ -355,10 +356,11 @@ export function useTasks(syncIdentity: string, currentUserEmail?: string) {
       tags: newTask.tags,
       recurrenceRule: 'NONE',
       assigneeEmail: currentUserEmail,
+      workspaceId,
     });
 
     return newTask;
-  }, [activeList, queueMutation, currentUserEmail]);
+  }, [activeList, queueMutation, currentUserEmail, workspaceId]);
 
   const updateTask = useCallback((id: string, updates: Partial<Task>) => {
     setTasks(prev => prev.map(t => {
@@ -562,8 +564,8 @@ export function useTasks(syncIdentity: string, currentUserEmail?: string) {
     sound.playDrop();
     addToast(`Added list "${newList.name}"`, 'success');
 
-    queueMutation('list.create', newList.id, newList as unknown as Record<string, unknown>);
-  }, [addToast, queueMutation]);
+    queueMutation('list.create', newList.id, { ...newList, workspaceId } as unknown as Record<string, unknown>);
+  }, [addToast, queueMutation, workspaceId]);
 
   const deleteList = useCallback((id: string) => {
     setLists(prev => prev.filter(l => l.id !== id));

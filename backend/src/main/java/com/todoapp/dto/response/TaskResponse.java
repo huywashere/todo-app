@@ -33,6 +33,9 @@ public class TaskResponse {
     private String assigneeEmail;
     private String recurrenceSeriesId;
     private String recurrenceParentId;
+    private String workspaceId;
+    private Integer recurrenceInterval;
+    private String recurrenceEndDate;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private LocalDateTime completedAt;

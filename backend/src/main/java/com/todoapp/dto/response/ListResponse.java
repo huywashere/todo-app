@@ -18,4 +18,5 @@ public class ListResponse {
     private Boolean hasDot;
     private long taskCount;
     private LocalDateTime createdAt;
+    private String workspaceId;
 }

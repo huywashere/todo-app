@@ -31,4 +31,6 @@ public class UpdateTaskRequest {
     private Boolean clearReminder;
     private String assigneeEmail;
     private Long version;
+    private Integer recurrenceInterval;
+    private String recurrenceEndDate;
 }

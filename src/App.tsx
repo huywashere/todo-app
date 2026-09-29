@@ -13,7 +13,7 @@ import { ProductivityPane } from './components/ProductivityPane';
 import { useTasks } from './hooks/useTasks';
 import { apiService, authService } from './services/api';
 import { storageService } from './services/storage';
-import type { AuthSession, AuthUser, TaskNotification, ViewMode } from './types/todo';
+import type { AuthSession, AuthUser, TaskNotification, ViewMode, Workspace } from './types/todo';
 import './App.css';
 
 interface WorkspaceProps {
@@ -31,6 +31,8 @@ function TaskWorkspace({ session, onExit, onUserUpdated }: WorkspaceProps) {
   const [accountOpen, setAccountOpen] = useState(false);
   const [notifications, setNotifications] = useState<TaskNotification[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | undefined>(session ? `personal-${session.user.id}` : undefined);
   const shownNotificationIds = useRef(new Set<string>());
   const syncIdentity = session?.user.id || 'offline';
   storageService.setScope(syncIdentity);
@@ -42,7 +44,15 @@ function TaskWorkspace({ session, onExit, onUserUpdated }: WorkspaceProps) {
     toggleTaskStatus, deleteTask, restoreTask, toggleSubTask, addSubTask, deleteSubTask, addList,
     deleteList, removeToast, showToast, exportBackup, importBackup, syncNow,
     permanentlyDeleteTask, reorderTasks, moveTaskToStatus, clearCompleted,
-  } = useTasks(syncIdentity, session?.user.email);
+  } = useTasks(syncIdentity, session?.user.email, activeWorkspaceId);
+
+  useEffect(() => {
+    if (!session) return;
+    void apiService.getWorkspaces().then(items => {
+      setWorkspaces(items);
+      setActiveWorkspaceId(current => current && items.some(item => item.id === current) ? current : items[0]?.id);
+    }).catch(() => undefined);
+  }, [session]);
 
   const loadNotifications = useCallback(async (announce = false) => {
     if (!session) return;
@@ -71,6 +81,16 @@ function TaskWorkspace({ session, onExit, onUserUpdated }: WorkspaceProps) {
     const timer = window.setInterval(() => void loadNotifications(true), 15_000);
     return () => { window.clearTimeout(initialTimer); window.clearInterval(timer); };
   }, [loadNotifications, session]);
+
+  useEffect(() => {
+    if (!session) return;
+    return apiService.subscribeToEvents((event) => {
+      if (event === 'workspace.activity' || event === 'notification.created') {
+        void syncNow();
+        void loadNotifications(true);
+      }
+    });
+  }, [loadNotifications, session, syncNow]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -204,6 +224,10 @@ function TaskWorkspace({ session, onExit, onUserUpdated }: WorkspaceProps) {
         onUserUpdated={onUserUpdated}
         onLogout={onExit}
         onAccountDeleted={onExit}
+        workspaces={workspaces}
+        activeWorkspaceId={activeWorkspaceId}
+        onWorkspaceChange={(workspaceId) => { setActiveWorkspaceId(workspaceId); setSelectedTaskId(null); setActiveList('inbox'); }}
+        onWorkspacesChange={setWorkspaces}
       />}
     </div>
   );
@@ -211,7 +235,21 @@ function TaskWorkspace({ session, onExit, onUserUpdated }: WorkspaceProps) {
 
 export function App() {
   const [session, setSession] = useState<AuthSession | null>(() => authService.getSession());
+  const [sessionRestoring, setSessionRestoring] = useState(() => !authService.getSession());
   const [offlineMode, setOfflineMode] = useState(false);
+
+  useEffect(() => {
+    if (session) { setSessionRestoring(false); return; }
+    let active = true;
+    void authService.restore().then(restored => {
+      if (active && restored) setSession(restored);
+    }).finally(() => { if (active) setSessionRestoring(false); });
+    return () => { active = false; };
+  }, [session]);
+
+  if (sessionRestoring && !offlineMode) {
+    return <div className="auth-loading" role="status">Đang khôi phục phiên đăng nhập…</div>;
+  }
 
   if (!session && !offlineMode) {
     return <AuthScreen onAuthenticated={setSession} onOffline={() => setOfflineMode(true)} />;

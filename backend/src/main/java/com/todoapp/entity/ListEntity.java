@@ -20,6 +20,9 @@ public class ListEntity {
     @Column(nullable = false, length = 64)
     private String ownerId;
 
+    @Column(length = 64)
+    private String workspaceId;
+
     @Column(nullable = false, length = 120)
     private String name;
 

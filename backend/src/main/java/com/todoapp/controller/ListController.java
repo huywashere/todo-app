@@ -24,8 +24,8 @@ public class ListController {
 
     @GetMapping
     @Operation(summary = "Lấy toàn bộ danh sách danh mục công việc")
-    public ResponseEntity<ApiResponse<List<ListResponse>>> getAllLists() {
-        List<ListResponse> lists = listService.getAllLists();
+    public ResponseEntity<ApiResponse<List<ListResponse>>> getAllLists(@RequestParam(required = false) String workspaceId) {
+        List<ListResponse> lists = listService.getAllLists(workspaceId);
         return ResponseEntity.ok(ApiResponse.success(lists));
     }
 

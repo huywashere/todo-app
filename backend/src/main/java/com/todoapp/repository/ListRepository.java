@@ -11,4 +11,6 @@ import java.util.Optional;
 public interface ListRepository extends JpaRepository<ListEntity, String> {
     List<ListEntity> findByOwnerIdOrderByCreatedAtAsc(String ownerId);
     Optional<ListEntity> findByIdAndOwnerId(String id, String ownerId);
+    List<ListEntity> findByWorkspaceIdOrderByCreatedAtAsc(String workspaceId);
+    Optional<ListEntity> findByIdAndWorkspaceId(String id, String workspaceId);
 }

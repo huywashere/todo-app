@@ -6,7 +6,7 @@ import java.util.List;
 
 public interface ListService {
 
-    List<ListResponse> getAllLists();
+    List<ListResponse> getAllLists(String workspaceId);
 
     ListResponse createList(CreateListRequest request);
 

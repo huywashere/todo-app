@@ -20,4 +20,5 @@ public class CreateListRequest {
     private String emoji;
     private String color;
     private Boolean hasDot;
+    private String workspaceId;
 }

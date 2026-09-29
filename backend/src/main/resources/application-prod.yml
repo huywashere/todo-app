@@ -1,0 +1,40 @@
+spring:
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USERNAME}
+    password: ${DATABASE_PASSWORD}
+  jpa:
+    show-sql: false
+  mail:
+    host: ${MAIL_HOST}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+
+app:
+  seed:
+    enabled: false
+  security:
+    jwt-secret: ${JWT_SECRET}
+    expose-development-tokens: false
+    cookie-secure: true
+    cookie-same-site: ${COOKIE_SAME_SITE:Lax}
+  email:
+    enabled: true
+  storage:
+    provider: s3

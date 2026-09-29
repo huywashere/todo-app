@@ -6,6 +6,8 @@ import com.todoapp.dto.request.UpdateTaskRequest;
 import com.todoapp.dto.response.ApiResponse;
 import com.todoapp.dto.response.TaskResponse;
 import com.todoapp.dto.response.TaskStatsResponse;
+import com.todoapp.dto.response.PageResponse;
+import com.todoapp.dto.request.BulkTaskRequest;
 import com.todoapp.entity.TaskStatus;
 import com.todoapp.service.TaskService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -31,9 +33,30 @@ public class TaskController {
     public ResponseEntity<ApiResponse<List<TaskResponse>>> getTasks(
             @RequestParam(required = false) String listId,
             @RequestParam(required = false) String query,
-            @RequestParam(required = false) TaskStatus status) {
-        List<TaskResponse> tasks = taskService.getTasks(listId, query, status);
+            @RequestParam(required = false) TaskStatus status,
+            @RequestParam(required = false) String workspaceId) {
+        List<TaskResponse> tasks = taskService.getTasks(listId, query, status, workspaceId);
         return ResponseEntity.ok(ApiResponse.success(tasks));
+    }
+
+    @GetMapping("/page")
+    public ApiResponse<PageResponse<TaskResponse>> getTaskPage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(required = false) String workspaceId) {
+        return ApiResponse.success(taskService.getTaskPage(page, size, workspaceId));
+    }
+
+    @PatchMapping("/bulk")
+    public ApiResponse<List<TaskResponse>> bulkUpdate(@Valid @RequestBody BulkTaskRequest request) {
+        return ApiResponse.success("Đã cập nhật hàng loạt", taskService.bulkUpdate(request));
+    }
+
+    @GetMapping(value = "/calendar.ics", produces = "text/calendar")
+    public ResponseEntity<String> exportCalendar(@RequestParam(required = false) String workspaceId) {
+        return ResponseEntity.ok()
+                .header("Content-Disposition", "attachment; filename=focusflow-calendar.ics")
+                .body(taskService.exportCalendar(workspaceId));
     }
 
     @GetMapping("/{id}")

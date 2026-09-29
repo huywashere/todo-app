@@ -31,4 +31,7 @@ public class CreateTaskRequest {
     private String recurrenceRule;
     private LocalDateTime reminderAt;
     private String assigneeEmail;
+    private String workspaceId;
+    private Integer recurrenceInterval;
+    private String recurrenceEndDate;
 }

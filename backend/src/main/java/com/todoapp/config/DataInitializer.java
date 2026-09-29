@@ -4,6 +4,8 @@ import com.todoapp.entity.*;
 import com.todoapp.repository.ListRepository;
 import com.todoapp.repository.TaskRepository;
 import com.todoapp.repository.UserRepository;
+import com.todoapp.repository.WorkspaceRepository;
+import com.todoapp.repository.WorkspaceMemberRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -26,6 +28,8 @@ public class DataInitializer implements CommandLineRunner {
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final WorkspaceRepository workspaceRepository;
+    private final WorkspaceMemberRepository workspaceMemberRepository;
 
     @Override
     public void run(String... args) {
@@ -46,6 +50,12 @@ public class DataInitializer implements CommandLineRunner {
                     .enabled(true)
                     .build());
         }
+        String workspaceId = "personal-" + demoUserId;
+        if (!workspaceRepository.existsById(workspaceId)) {
+            workspaceRepository.save(WorkspaceEntity.builder().id(workspaceId).name("Demo Workspace").ownerId(demoUserId).build());
+            workspaceMemberRepository.save(WorkspaceMemberEntity.builder()
+                    .workspaceId(workspaceId).userId(demoUserId).role("OWNER").build());
+        }
 
         // 1. Seed custom lists
         List<ListEntity> initialLists = Arrays.asList(
@@ -56,6 +66,7 @@ public class DataInitializer implements CommandLineRunner {
                 ListEntity.builder().id("workout-plan").ownerId(demoUserId).name("Workout Plan").emoji("🏃").color("#8B5CF6").hasDot(false).build(),
                 ListEntity.builder().id("wishlist").ownerId(demoUserId).name("Wishlist").emoji("✨").color("#F97316").hasDot(false).build()
         );
+        initialLists.forEach(list -> list.setWorkspaceId(workspaceId));
         listRepository.saveAll(initialLists);
 
         // 2. Seed tasks
@@ -231,7 +242,10 @@ public class DataInitializer implements CommandLineRunner {
                 .build();
 
         List<TaskEntity> demoTasks = Arrays.asList(task1, task2, task3, task4, task5, task6, task7, task8, task9, task10);
-        demoTasks.forEach(task -> task.setAssigneeEmail("demo@todo.local"));
+        demoTasks.forEach(task -> {
+            task.setAssigneeEmail("demo@todo.local");
+            task.setWorkspaceId(workspaceId);
+        });
         taskRepository.saveAll(demoTasks);
         log.info("Dữ liệu mẫu đã được khởi tạo thành công với {} công việc!", taskRepository.count());
     }

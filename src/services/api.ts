@@ -10,6 +10,10 @@ import type {
   TaskNotification,
   FocusSession,
   AccountTokenResult,
+  LoginSession,
+  Workspace,
+  TaskComment,
+  TaskAttachment,
 } from '../types/todo';
 
 const API_BASE_URL = (
@@ -36,7 +40,7 @@ export class ApiError extends Error {
 
 function loadSession(): AuthSession | null {
   try {
-    const value = localStorage.getItem(SESSION_KEY);
+    const value = sessionStorage.getItem(SESSION_KEY);
     return value ? JSON.parse(value) as AuthSession : null;
   } catch {
     return null;
@@ -45,9 +49,9 @@ function loadSession(): AuthSession | null {
 
 function saveSession(session: AuthSession | null) {
   if (session) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
   } else {
-    localStorage.removeItem(SESSION_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
   }
 }
 
@@ -60,13 +64,12 @@ async function parseResponse<T>(response: Response): Promise<T> {
 }
 
 async function refreshSession(): Promise<AuthSession | null> {
-  const current = loadSession();
-  if (!current?.refreshToken) return null;
   try {
     const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken: current.refreshToken }),
+      body: '{}',
     });
     const session = await parseResponse<AuthSession>(response);
     saveSession(session);
@@ -77,14 +80,25 @@ async function refreshSession(): Promise<AuthSession | null> {
   }
 }
 
+async function authorizedFetch(path: string, init: RequestInit = {}, retry = true): Promise<Response> {
+  const session = loadSession();
+  const headers = new Headers(init.headers);
+  if (session?.accessToken) headers.set('Authorization', `Bearer ${session.accessToken}`);
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers, credentials: 'include' });
+  if (response.status === 401 && retry && await refreshSession()) {
+    return authorizedFetch(path, init, false);
+  }
+  return response;
+}
+
 async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
   const session = loadSession();
   const headers = new Headers(init.headers);
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   if (session?.accessToken) headers.set('Authorization', `Bearer ${session.accessToken}`);
 
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
-  if (response.status === 401 && retry && session?.refreshToken) {
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers, credentials: 'include' });
+  if (response.status === 401 && retry) {
     const refreshed = await refreshSession();
     if (refreshed) return request<T>(path, init, false);
   }
@@ -93,9 +107,11 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
 
 export const authService = {
   getSession: loadSession,
+  restore: refreshSession,
   async login(email: string, password: string): Promise<AuthSession> {
     const response = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
@@ -106,6 +122,7 @@ export const authService = {
   async register(displayName: string, email: string, password: string): Promise<AuthSession> {
     const response = await fetch(`${API_BASE_URL}/auth/register`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ displayName, email, password }),
     });
@@ -146,6 +163,7 @@ export const authService = {
   async forgotPassword(email: string): Promise<AccountTokenResult> {
     const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email }),
     });
@@ -154,6 +172,7 @@ export const authService = {
   async resetPassword(token: string, newPassword: string): Promise<void> {
     const response = await fetch(`${API_BASE_URL}/auth/reset-password`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, newPassword }),
     });
@@ -167,13 +186,17 @@ export const authService = {
     saveSession(null);
   },
   async logout(): Promise<void> {
-    const session = loadSession();
-    if (session?.refreshToken) {
-      await request<void>('/auth/logout', {
-        method: 'POST',
-        body: JSON.stringify({ refreshToken: session.refreshToken }),
-      }).catch(() => undefined);
-    }
+    await request<void>('/auth/logout', { method: 'POST', body: '{}' }).catch(() => undefined);
+    saveSession(null);
+  },
+  async sessions(): Promise<LoginSession[]> {
+    return request<LoginSession[]>('/auth/sessions');
+  },
+  async revokeSession(id: string): Promise<void> {
+    return request<void>(`/auth/sessions/${id}`, { method: 'DELETE' });
+  },
+  async revokeAllSessions(): Promise<void> {
+    await request<void>('/auth/sessions', { method: 'DELETE' });
     saveSession(null);
   },
   clear: () => saveSession(null),
@@ -189,11 +212,12 @@ export const apiService = {
     }
   },
 
-  async getTasks(listId?: string, query?: string, status?: TaskStatus): Promise<Task[]> {
+  async getTasks(listId?: string, query?: string, status?: TaskStatus, workspaceId?: string): Promise<Task[]> {
     const params = new URLSearchParams();
     if (listId) params.set('listId', listId);
     if (query) params.set('query', query);
     if (status) params.set('status', status.toUpperCase());
+    if (workspaceId) params.set('workspaceId', workspaceId);
     return request<Task[]>(`/tasks${params.size ? `?${params}` : ''}`);
   },
 
@@ -236,8 +260,8 @@ export const apiService = {
     return request<Task>(`/tasks/${taskId}/subtasks/${subTaskId}`, { method: 'DELETE' });
   },
 
-  async getLists(): Promise<TaskList[]> {
-    return request<TaskList[]>('/lists');
+  async getLists(workspaceId?: string): Promise<TaskList[]> {
+    return request<TaskList[]>(`/lists${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ''}`);
   },
 
   async createList(list: Partial<TaskList>): Promise<TaskList> {
@@ -273,6 +297,68 @@ export const apiService = {
       method: 'POST',
       body: JSON.stringify({ durationSeconds, taskId: taskId || null }),
     });
+  },
+  async getWorkspaces(): Promise<Workspace[]> { return request<Workspace[]>('/workspaces'); },
+  async createWorkspace(name: string): Promise<Workspace> {
+    return request<Workspace>('/workspaces', { method: 'POST', body: JSON.stringify({ name }) });
+  },
+  async inviteWorkspaceMember(workspaceId: string, email: string, role: 'ADMIN' | 'MEMBER' | 'VIEWER' = 'MEMBER'): Promise<Workspace> {
+    return request<Workspace>(`/workspaces/${workspaceId}/members`, { method: 'POST', body: JSON.stringify({ email, role }) });
+  },
+  async getComments(taskId: string): Promise<TaskComment[]> { return request<TaskComment[]>(`/tasks/${taskId}/comments`); },
+  async addComment(taskId: string, body: string): Promise<TaskComment> {
+    return request<TaskComment>(`/tasks/${taskId}/comments`, { method: 'POST', body: JSON.stringify({ body }) });
+  },
+  async deleteComment(taskId: string, commentId: string): Promise<void> {
+    return request<void>(`/tasks/${taskId}/comments/${commentId}`, { method: 'DELETE' });
+  },
+  async getAttachments(taskId: string): Promise<TaskAttachment[]> { return request<TaskAttachment[]>(`/tasks/${taskId}/attachments`); },
+  async uploadAttachment(taskId: string, file: File): Promise<TaskAttachment> {
+    const body = new FormData(); body.append('file', file);
+    const response = await authorizedFetch(`/tasks/${taskId}/attachments`, { method: 'POST', body });
+    return parseResponse<TaskAttachment>(response);
+  },
+  async downloadAttachment(taskId: string, attachmentId: string, fallbackFileName: string): Promise<void> {
+    const response = await authorizedFetch(`/tasks/${taskId}/attachments/${attachmentId}`);
+    if (!response.ok) {
+      const body = await response.json().catch(() => null) as BackendApiResponse<unknown> | null;
+      throw new ApiError(response.status, body?.message || 'Không thể tải tệp đính kèm');
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fallbackFileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  },
+  async deleteAttachment(taskId: string, attachmentId: string): Promise<void> {
+    return request<void>(`/tasks/${taskId}/attachments/${attachmentId}`, { method: 'DELETE' });
+  },
+  subscribeToEvents(onEvent: (event: string, data: unknown) => void): () => void {
+    const abort = new AbortController();
+    const session = loadSession();
+    if (!session?.accessToken) return () => abort.abort();
+    void (async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/events`, { headers: { Authorization: `Bearer ${session.accessToken}`, Accept: 'text/event-stream' }, signal: abort.signal, credentials: 'include' });
+        if (!response.ok || !response.body) return;
+        const reader = response.body.getReader(); const decoder = new TextDecoder(); let pending = '';
+        while (!abort.signal.aborted) {
+          const chunk = await reader.read(); if (chunk.done) break;
+          pending += decoder.decode(chunk.value, { stream: true });
+          const packets = pending.split('\n\n'); pending = packets.pop() || '';
+          for (const packet of packets) {
+            const type = packet.match(/^event:\s*(.+)$/m)?.[1] || 'message';
+            const raw = packet.match(/^data:\s*(.+)$/m)?.[1];
+            if (raw) { try { onEvent(type, JSON.parse(raw)); } catch { onEvent(type, raw); } }
+          }
+        }
+      } catch { /* reconnect is handled on next workspace refresh */ }
+    })();
+    return () => abort.abort();
   },
 
   async executeSyncOperation(operation: SyncOperation): Promise<unknown> {

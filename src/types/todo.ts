@@ -10,6 +10,7 @@ export interface SubTask {
 export interface TaskList {
   id: string;
   name: string;
+  workspaceId?: string;
   emoji?: string;
   color?: string;
   hasDot?: boolean;
@@ -32,7 +33,10 @@ export interface Task {
   completedAt?: string;
   deletedAt?: string;
   reminderAt?: string;
-  recurrenceRule?: 'NONE' | 'DAILY' | 'WEEKLY' | 'MONTHLY';
+  recurrenceRule?: 'NONE' | 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'WEEKDAYS' | 'MONTHLY_LAST_DAY';
+  recurrenceInterval?: number;
+  recurrenceEndDate?: string;
+  workspaceId?: string;
   assigneeEmail?: string;
   recurrenceSeriesId?: string;
   recurrenceParentId?: string;
@@ -51,9 +55,18 @@ export interface AuthUser {
 
 export interface AuthSession {
   accessToken: string;
-  refreshToken: string;
   expiresInSeconds: number;
   user: AuthUser;
+}
+
+export interface LoginSession {
+  id: string;
+  deviceName?: string;
+  ipAddress?: string;
+  createdAt: string;
+  lastUsedAt?: string;
+  expiresAt: string;
+  current: boolean;
 }
 
 export type SyncState = 'offline' | 'syncing' | 'synced' | 'error';
@@ -138,4 +151,40 @@ export interface FocusSession {
 export interface AccountTokenResult {
   message: string;
   developmentToken?: string;
+}
+
+export interface WorkspaceMember {
+  userId: string;
+  email: string;
+  displayName: string;
+  role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'VIEWER';
+  joinedAt: string;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  ownerId: string;
+  currentUserRole: WorkspaceMember['role'];
+  createdAt: string;
+  members: WorkspaceMember[];
+}
+
+export interface TaskComment {
+  id: string;
+  taskId: string;
+  authorId: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskAttachment {
+  id: string;
+  taskId: string;
+  fileName: string;
+  contentType?: string;
+  sizeBytes: number;
+  createdAt: string;
 }

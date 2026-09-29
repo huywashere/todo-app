@@ -6,6 +6,8 @@ FocusFlow is an offline-first task management application built as a production-
 
 - Email/password registration and login with short-lived JWT access tokens.
 - Rotating, revocable refresh tokens stored as hashes in the database.
+- HttpOnly refresh-cookie sessions, active-session management, password policy, login throttling, and SMTP-backed verification/recovery flows.
+- Workspaces with owner/admin/member/viewer roles, activity events, task comments, and authenticated attachments stored locally or in S3-compatible storage.
 - Strict per-user ownership for tasks, lists, subtasks, and trash.
 - Offline-first mutations persisted locally and replayed in order after reconnecting.
 - Idempotent task creation and optimistic locking to prevent duplicate or lost updates.
@@ -121,6 +123,7 @@ If port 8080 is already in use, set `FRONTEND_PORT=8088` in `.env` and open `htt
 | `POST /api/v1/auth/login` | Authenticate a user |
 | `POST /api/v1/auth/refresh` | Rotate the refresh token |
 | `POST /api/v1/auth/logout` | Revoke a refresh token |
+| `GET/DELETE /api/v1/auth/sessions` | Inspect and revoke browser sessions |
 | `GET /api/v1/auth/me` | Return the current user |
 | `PATCH /api/v1/auth/profile` | Update display name and timezone |
 | `POST /api/v1/auth/change-password` | Change the authenticated user's password |
@@ -134,6 +137,13 @@ If port 8080 is already in use, set `FRONTEND_PORT=8088` in `.env` and open `htt
 | `POST /api/v1/tasks/{id}/restore` | Restore a deleted task |
 | `DELETE /api/v1/tasks/{id}/permanent` | Permanently remove a task |
 | `GET/POST/DELETE /api/v1/lists` | Manage user-owned lists |
+| `GET/POST /api/v1/workspaces` | List and create workspaces |
+| `POST/PATCH/DELETE /api/v1/workspaces/{id}/members` | Manage workspace membership and roles |
+| `GET/POST/DELETE /api/v1/tasks/{id}/comments` | Collaborate in a task |
+| `GET/POST/DELETE /api/v1/tasks/{id}/attachments` | Upload, download, and delete authenticated attachments |
+| `GET /api/v1/events` | Authenticated server-sent workspace and notification events |
+| `PATCH /api/v1/tasks/bulk` | Apply a workspace-scoped bulk update |
+| `GET /api/v1/tasks/calendar.ics` | Export a workspace calendar feed |
 | `GET /api/v1/tasks/stats` | Return task aggregates |
 | `GET/PATCH /api/v1/notifications` | Read and acknowledge due reminders |
 | `GET/POST /api/v1/focus-sessions` | Read and record Pomodoro sessions |
@@ -168,13 +178,17 @@ CI repeats linting, tests, builds, dependency auditing, container builds, filesy
 | `SEED_DEMO_DATA` | Seed the demo account and starter tasks | `true` |
 | `VITE_API_BASE_URL` | Public API base URL used during frontend build | `http://localhost:8085/api/v1` |
 | `FRONTEND_PORT` | Host port exposed by the Docker frontend | `8080` |
+| `EMAIL_ENABLED` / `MAIL_*` | Enable SMTP delivery for verification, reset, and reminders | disabled |
+| `STORAGE_PROVIDER` | `local` or `s3` attachment storage | `local` |
+| `S3_BUCKET`, `AWS_REGION`, `S3_ENDPOINT` | S3/MinIO attachment configuration | none |
+| `COOKIE_SECURE`, `COOKIE_SAME_SITE` | Refresh-cookie transport policy | `false`, `Lax` |
 
 Never reuse the development JWT or database secrets in a public environment.
 
-The recovery and verification endpoints expose their generated token in the response so the full workflow can be demonstrated without an email provider. Replace that preview with transactional email delivery before a public production launch.
+Development may expose verification/recovery tokens for the demo flow. The `prod` profile disables that behavior and sends links through SMTP instead.
 
 ## Production notes
 
-The project demonstrates production-oriented boundaries, but a public deployment should also provide managed PostgreSQL backups/PITR, TLS at an ingress or load balancer, a secrets manager, centralized logs and alerts, restricted access to metrics, an external rate limiter/WAF, and HttpOnly-cookie or hardened token storage appropriate to its threat model.
+The project demonstrates production-oriented boundaries. See [docs/PRODUCTION.md](docs/PRODUCTION.md) for the exact deployment contract, MinIO staging override, recovery drill, edge restrictions, and the remaining multi-node realtime requirement.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for synchronization, security, data ownership, and deployment decisions.

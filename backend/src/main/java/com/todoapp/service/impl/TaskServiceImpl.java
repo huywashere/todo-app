@@ -6,6 +6,8 @@ import com.todoapp.dto.request.UpdateTaskRequest;
 import com.todoapp.dto.response.SubTaskResponse;
 import com.todoapp.dto.response.TaskResponse;
 import com.todoapp.dto.response.TaskStatsResponse;
+import com.todoapp.dto.response.PageResponse;
+import com.todoapp.dto.request.BulkTaskRequest;
 import com.todoapp.entity.SubTaskEntity;
 import com.todoapp.entity.TaskEntity;
 import com.todoapp.entity.TaskPriority;
@@ -15,6 +17,8 @@ import com.todoapp.repository.TaskRepository;
 import com.todoapp.repository.ListRepository;
 import com.todoapp.security.CurrentUser;
 import com.todoapp.service.TaskService;
+import com.todoapp.service.WorkspaceAccessService;
+import com.todoapp.service.ActivityService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +29,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 @Service
 @RequiredArgsConstructor
@@ -34,12 +40,30 @@ public class TaskServiceImpl implements TaskService {
     private final TaskRepository taskRepository;
     private final ListRepository listRepository;
     private final CurrentUser currentUser;
+    private final WorkspaceAccessService workspaceAccessService;
+    private final ActivityService activityService;
 
     @Override
     @Transactional(readOnly = true)
-    public List<TaskResponse> getTasks(String listId, String query, TaskStatus status) {
+    public List<TaskResponse> getTasks(String listId, String query, TaskStatus status, String workspaceId) {
         String ownerId = currentUser.id();
         List<TaskEntity> tasks;
+
+        if (workspaceId != null && !workspaceId.isBlank()) {
+            workspaceAccessService.requireMember(workspaceId);
+            if (query != null && !query.trim().isEmpty()) {
+                tasks = taskRepository.searchWorkspaceTasks(workspaceId, query.trim());
+            } else if ("trash".equalsIgnoreCase(listId)) {
+                tasks = taskRepository.findByWorkspaceIdAndDeletedAtIsNotNullOrderByDeletedAtDesc(workspaceId);
+            } else if (listId != null && !listId.trim().isEmpty()) {
+                tasks = taskRepository.findByWorkspaceIdAndListIdAndDeletedAtIsNullOrderBySortOrderAsc(workspaceId, listId.trim());
+            } else if (status != null) {
+                tasks = taskRepository.findByWorkspaceIdAndStatusAndDeletedAtIsNullOrderBySortOrderAsc(workspaceId, status);
+            } else {
+                tasks = taskRepository.findByWorkspaceIdAndDeletedAtIsNullOrderBySortOrderAscCreatedAtDesc(workspaceId);
+            }
+            return tasks.stream().map(this::mapToResponse).toList();
+        }
 
         if (query != null && !query.trim().isEmpty()) {
             tasks = taskRepository.searchTasks(ownerId, query.trim());
@@ -58,14 +82,80 @@ public class TaskServiceImpl implements TaskService {
 
     @Override
     @Transactional(readOnly = true)
+    public PageResponse<TaskResponse> getTaskPage(int page, int size, String workspaceId) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        var pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.ASC, "sortOrder")
+                .and(Sort.by(Sort.Direction.DESC, "createdAt")));
+        org.springframework.data.domain.Page<TaskEntity> result;
+        if (workspaceId != null && !workspaceId.isBlank()) {
+            workspaceAccessService.requireMember(workspaceId);
+            result = taskRepository.findByWorkspaceIdAndDeletedAtIsNull(workspaceId, pageable);
+        } else {
+            result = taskRepository.findByOwnerIdAndDeletedAtIsNull(currentUser.id(), pageable);
+        }
+        return new PageResponse<>(result.getContent().stream().map(this::mapToResponse).toList(),
+                result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages());
+    }
+
+    @Override
+    public List<TaskResponse> bulkUpdate(BulkTaskRequest request) {
+        List<TaskResponse> changed = new ArrayList<>();
+        for (String taskId : request.taskIds()) {
+            TaskEntity task = findTaskOrThrow(taskId);
+            if (request.delete()) task.setDeletedAt(LocalDateTime.now());
+            if (request.status() != null) {
+                task.setStatus(request.status());
+                task.setCompletedAt(request.status() == TaskStatus.COMPLETED ? LocalDateTime.now() : null);
+            }
+            if (request.priority() != null) task.setPriority(request.priority());
+            if (request.listId() != null) {
+                validateListAccess(request.listId(), task.getWorkspaceId());
+                task.setListId(request.listId());
+            }
+            TaskEntity saved = taskRepository.saveAndFlush(task);
+            activityService.record(saved.getWorkspaceId(), saved.getId(), "TASK_BULK_UPDATED", saved.getTitle());
+            changed.add(mapToResponse(saved));
+        }
+        return changed;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public String exportCalendar(String workspaceId) {
+        List<TaskEntity> tasks;
+        if (workspaceId != null && !workspaceId.isBlank()) {
+            workspaceAccessService.requireMember(workspaceId);
+            tasks = taskRepository.findByWorkspaceIdAndDeletedAtIsNullOrderBySortOrderAscCreatedAtDesc(workspaceId);
+        } else {
+            tasks = taskRepository.findByOwnerIdAndDeletedAtIsNullOrderBySortOrderAscCreatedAtDesc(currentUser.id());
+        }
+        StringBuilder ics = new StringBuilder("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//FocusFlow//Tasks//EN\r\nCALSCALE:GREGORIAN\r\n");
+        tasks.stream().filter(task -> task.getDueDate() != null).forEach(task -> {
+            LocalDate date;
+            try { date = LocalDate.parse(task.getDueDate()); } catch (Exception ignored) { return; }
+            ics.append("BEGIN:VEVENT\r\nUID:").append(task.getId()).append("@focusflow\r\n")
+                    .append("DTSTART;VALUE=DATE:").append(date.toString().replace("-", "")).append("\r\n")
+                    .append("DTEND;VALUE=DATE:").append(date.plusDays(1).toString().replace("-", "")).append("\r\n")
+                    .append("SUMMARY:").append(escapeIcs(task.getTitle())).append("\r\n")
+                    .append("DESCRIPTION:").append(escapeIcs(task.getDescription())).append("\r\nEND:VEVENT\r\n");
+        });
+        return ics.append("END:VCALENDAR\r\n").toString();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public TaskResponse getTaskById(String id) {
-        TaskEntity task = findTaskOrThrow(id);
+        TaskEntity task = findTaskForView(id);
         return mapToResponse(task);
     }
 
     @Override
     public TaskResponse createTask(CreateTaskRequest request) {
         String ownerId = currentUser.id();
+        String workspaceId = request.getWorkspaceId() == null || request.getWorkspaceId().isBlank()
+                ? "personal-" + ownerId : request.getWorkspaceId().trim();
+        workspaceAccessService.requireEditor(workspaceId);
         if (request.getClientId() != null && !request.getClientId().isBlank()) {
             var existing = taskRepository.findByOwnerIdAndClientRequestId(ownerId, request.getClientId().trim());
             if (existing.isPresent()) {
@@ -75,11 +165,12 @@ public class TaskServiceImpl implements TaskService {
         String taskId = validClientId(request.getClientId())
                 ? request.getClientId().trim()
                 : "task-" + UUID.randomUUID();
-        validateListOwnership(request.getListId(), ownerId);
+        validateListAccess(request.getListId(), workspaceId);
         String recurrence = normalizeRecurrence(request.getRecurrenceRule());
         TaskEntity task = TaskEntity.builder()
                 .id(taskId)
                 .ownerId(ownerId)
+                .workspaceId(workspaceId)
                 .clientRequestId(request.getClientId() == null ? null : request.getClientId().trim())
                 .title(request.getTitle().trim())
                 .description(request.getDescription())
@@ -91,6 +182,8 @@ public class TaskServiceImpl implements TaskService {
                 .dateLabel(request.getDateLabel() != null ? request.getDateLabel() : "Today")
                 .tags(request.getTags() != null ? request.getTags() : new ArrayList<>())
                 .recurrenceRule(recurrence)
+                .recurrenceInterval(normalizeRecurrenceInterval(request.getRecurrenceInterval()))
+                .recurrenceEndDate(normalizeDate(request.getRecurrenceEndDate()))
                 .recurrenceSeriesId("NONE".equals(recurrence) ? null : taskId)
                 .reminderAt(request.getReminderAt())
                 .reminderSent(false)
@@ -99,6 +192,7 @@ public class TaskServiceImpl implements TaskService {
                 .build();
 
         TaskEntity saved = taskRepository.save(task);
+        activityService.record(workspaceId, saved.getId(), "TASK_CREATED", saved.getTitle());
         return mapToResponse(saved);
     }
 
@@ -114,7 +208,7 @@ public class TaskServiceImpl implements TaskService {
         if (request.getDescription() != null) task.setDescription(request.getDescription());
         if (request.getPriority() != null) task.setPriority(request.getPriority());
         if (request.getListId() != null) {
-            validateListOwnership(request.getListId(), currentUser.id());
+            validateListAccess(request.getListId(), task.getWorkspaceId());
             task.setListId(request.getListId());
         }
         if (request.getTime() != null) task.setTime(request.getTime());
@@ -128,6 +222,8 @@ public class TaskServiceImpl implements TaskService {
                 task.setRecurrenceSeriesId(task.getId());
             }
         }
+        if (request.getRecurrenceInterval() != null) task.setRecurrenceInterval(normalizeRecurrenceInterval(request.getRecurrenceInterval()));
+        if (request.getRecurrenceEndDate() != null) task.setRecurrenceEndDate(normalizeDate(request.getRecurrenceEndDate()));
         if (Boolean.TRUE.equals(request.getClearReminder())) {
             task.setReminderAt(null);
             task.setReminderSent(false);
@@ -152,6 +248,7 @@ public class TaskServiceImpl implements TaskService {
         // optimistic-lock version that clients must send with their next write.
         TaskEntity updated = taskRepository.saveAndFlush(task);
         if (becameCompleted) createNextOccurrence(updated);
+        activityService.record(updated.getWorkspaceId(), updated.getId(), "TASK_UPDATED", updated.getTitle());
         return mapToResponse(updated);
     }
 
@@ -165,6 +262,7 @@ public class TaskServiceImpl implements TaskService {
 
         TaskEntity updated = taskRepository.saveAndFlush(task);
         if (isNowCompleted) createNextOccurrence(updated);
+        activityService.record(updated.getWorkspaceId(), updated.getId(), isNowCompleted ? "TASK_COMPLETED" : "TASK_REOPENED", updated.getTitle());
         return mapToResponse(updated);
     }
 
@@ -173,18 +271,22 @@ public class TaskServiceImpl implements TaskService {
         TaskEntity task = findTaskOrThrow(id);
         task.setDeletedAt(LocalDateTime.now());
         taskRepository.save(task);
+        activityService.record(task.getWorkspaceId(), task.getId(), "TASK_DELETED", task.getTitle());
     }
 
     @Override
     public TaskResponse restoreTask(String id) {
         TaskEntity task = findTaskOrThrow(id);
         task.setDeletedAt(null);
-        return mapToResponse(taskRepository.saveAndFlush(task));
+        TaskEntity restored = taskRepository.saveAndFlush(task);
+        activityService.record(restored.getWorkspaceId(), restored.getId(), "TASK_RESTORED", restored.getTitle());
+        return mapToResponse(restored);
     }
 
     @Override
     public void permanentlyDeleteTask(String id) {
         TaskEntity task = findTaskOrThrow(id);
+        activityService.record(task.getWorkspaceId(), task.getId(), "TASK_PURGED", task.getTitle());
         taskRepository.delete(task);
     }
 
@@ -275,8 +377,23 @@ public class TaskServiceImpl implements TaskService {
     }
 
     private TaskEntity findTaskOrThrow(String id) {
-        return taskRepository.findByIdAndOwnerId(id, currentUser.id())
+        TaskEntity task = taskRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy công việc với id: " + id));
+        workspaceAccessService.requireTaskEditor(task);
+        return task;
+    }
+
+    private TaskEntity findTaskForView(String id) {
+        TaskEntity task = taskRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy công việc với id: " + id));
+        workspaceAccessService.requireTaskViewer(task);
+        return task;
+    }
+
+    private String escapeIcs(String value) {
+        if (value == null) return "";
+        return value.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")
+                .replace("\r", "").replace("\n", "\\n");
     }
 
     private TaskResponse mapToResponse(TaskEntity entity) {
@@ -306,6 +423,9 @@ public class TaskServiceImpl implements TaskService {
                 .assigneeEmail(entity.getAssigneeEmail())
                 .recurrenceSeriesId(entity.getRecurrenceSeriesId())
                 .recurrenceParentId(entity.getRecurrenceParentId())
+                .workspaceId(entity.getWorkspaceId())
+                .recurrenceInterval(entity.getRecurrenceInterval())
+                .recurrenceEndDate(entity.getRecurrenceEndDate())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .completedAt(entity.getCompletedAt())
@@ -313,11 +433,11 @@ public class TaskServiceImpl implements TaskService {
                 .build();
     }
 
-    private void validateListOwnership(String listId, String ownerId) {
+    private void validateListAccess(String listId, String workspaceId) {
         if (listId == null || listId.isBlank() || "inbox".equals(listId)) {
             return;
         }
-        if (listRepository.findByIdAndOwnerId(listId, ownerId).isEmpty()) {
+        if (listRepository.findByIdAndWorkspaceId(listId, workspaceId).isEmpty()) {
             throw new ResourceNotFoundException("Không tìm thấy danh sách với id: " + listId);
         }
     }
@@ -332,7 +452,7 @@ public class TaskServiceImpl implements TaskService {
         }
         String normalized = recurrence.trim().toUpperCase();
         return switch (normalized) {
-            case "NONE", "DAILY", "WEEKLY", "MONTHLY" -> normalized;
+            case "NONE", "DAILY", "WEEKLY", "MONTHLY", "WEEKDAYS", "MONTHLY_LAST_DAY" -> normalized;
             default -> throw new IllegalArgumentException("Quy tắc lặp không hợp lệ");
         };
     }
@@ -357,18 +477,23 @@ public class TaskServiceImpl implements TaskService {
         } catch (Exception ignored) {
             baseDate = LocalDate.now();
         }
+        int interval = source.getRecurrenceInterval() == null ? 1 : Math.max(1, source.getRecurrenceInterval());
         LocalDate nextDate = switch (source.getRecurrenceRule()) {
-            case "DAILY" -> baseDate.plusDays(1);
-            case "WEEKLY" -> baseDate.plusWeeks(1);
-            case "MONTHLY" -> baseDate.plusMonths(1);
+            case "DAILY" -> baseDate.plusDays(interval);
+            case "WEEKLY" -> baseDate.plusWeeks(interval);
+            case "MONTHLY" -> baseDate.plusMonths(interval);
+            case "WEEKDAYS" -> nextWeekday(baseDate, interval);
+            case "MONTHLY_LAST_DAY" -> baseDate.plusMonths(interval).withDayOfMonth(baseDate.plusMonths(interval).lengthOfMonth());
             default -> null;
         };
         if (nextDate == null) return;
+        if (source.getRecurrenceEndDate() != null && nextDate.isAfter(LocalDate.parse(source.getRecurrenceEndDate()))) return;
 
         String nextId = "task-" + UUID.randomUUID();
         TaskEntity next = TaskEntity.builder()
                 .id(nextId)
                 .ownerId(source.getOwnerId())
+                .workspaceId(source.getWorkspaceId())
                 .title(source.getTitle())
                 .description(source.getDescription())
                 .status(TaskStatus.TODO)
@@ -379,10 +504,12 @@ public class TaskServiceImpl implements TaskService {
                 .dateLabel(nextDate.toString())
                 .tags(source.getTags() == null ? new ArrayList<>() : new ArrayList<>(source.getTags()))
                 .recurrenceRule(source.getRecurrenceRule())
+                .recurrenceInterval(interval)
+                .recurrenceEndDate(source.getRecurrenceEndDate())
                 .recurrenceSeriesId(source.getRecurrenceSeriesId() == null ? source.getId() : source.getRecurrenceSeriesId())
                 .recurrenceParentId(source.getId())
                 .assigneeEmail(source.getAssigneeEmail())
-                .reminderAt(shiftReminder(source.getReminderAt(), source.getRecurrenceRule()))
+                .reminderAt(shiftReminder(source.getReminderAt(), source.getDueDate(), nextDate))
                 .reminderSent(false)
                 .sortOrder(source.getSortOrder())
                 .build();
@@ -398,13 +525,32 @@ public class TaskServiceImpl implements TaskService {
         taskRepository.save(next);
     }
 
-    private LocalDateTime shiftReminder(LocalDateTime reminder, String recurrence) {
+    private LocalDateTime shiftReminder(LocalDateTime reminder, String previousDueDate, LocalDate nextDate) {
         if (reminder == null) return null;
-        return switch (recurrence) {
-            case "DAILY" -> reminder.plusDays(1);
-            case "WEEKLY" -> reminder.plusWeeks(1);
-            case "MONTHLY" -> reminder.plusMonths(1);
-            default -> null;
-        };
+        try {
+            LocalDate previous = previousDueDate == null ? reminder.toLocalDate() : LocalDate.parse(previousDueDate);
+            return reminder.plusDays(java.time.temporal.ChronoUnit.DAYS.between(previous, nextDate));
+        } catch (Exception ignored) { return reminder; }
+    }
+
+    private int normalizeRecurrenceInterval(Integer interval) {
+        if (interval == null) return 1;
+        if (interval < 1 || interval > 365) throw new IllegalArgumentException("Khoảng lặp phải từ 1 đến 365");
+        return interval;
+    }
+
+    private String normalizeDate(String value) {
+        if (value == null || value.isBlank()) return null;
+        return LocalDate.parse(value.trim()).toString();
+    }
+
+    private LocalDate nextWeekday(LocalDate base, int count) {
+        LocalDate result = base;
+        int remaining = count;
+        while (remaining > 0) {
+            result = result.plusDays(1);
+            if (result.getDayOfWeek().getValue() <= 5) remaining--;
+        }
+        return result;
     }
 }

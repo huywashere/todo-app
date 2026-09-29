@@ -8,10 +8,18 @@ import com.todoapp.dto.response.TaskStatsResponse;
 import com.todoapp.entity.TaskStatus;
 
 import java.util.List;
+import com.todoapp.dto.request.BulkTaskRequest;
+import com.todoapp.dto.response.PageResponse;
 
 public interface TaskService {
 
-    List<TaskResponse> getTasks(String listId, String query, TaskStatus status);
+    List<TaskResponse> getTasks(String listId, String query, TaskStatus status, String workspaceId);
+
+    PageResponse<TaskResponse> getTaskPage(int page, int size, String workspaceId);
+
+    List<TaskResponse> bulkUpdate(BulkTaskRequest request);
+
+    String exportCalendar(String workspaceId);
 
     TaskResponse getTaskById(String id);
 

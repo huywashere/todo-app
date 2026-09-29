@@ -60,6 +60,25 @@ app:
     jwt-secret: ${JWT_SECRET:development-only-secret-change-before-production-2026-very-long-key}
     access-token-seconds: ${ACCESS_TOKEN_SECONDS:900}
     refresh-token-days: ${REFRESH_TOKEN_DAYS:30}
+    expose-development-tokens: ${EXPOSE_DEVELOPMENT_TOKENS:true}
+    cookie-secure: ${COOKIE_SECURE:false}
+    cookie-domain: ${COOKIE_DOMAIN:}
+    # Use None only when the frontend and API are on different sites; it requires HTTPS.
+    cookie-same-site: ${COOKIE_SAME_SITE:Lax}
+    login-max-attempts: ${LOGIN_MAX_ATTEMPTS:5}
+    login-lock-minutes: ${LOGIN_LOCK_MINUTES:15}
+  frontend-url: ${FRONTEND_URL:http://localhost:8080}
+  email:
+    enabled: ${EMAIL_ENABLED:false}
+    from: ${MAIL_FROM:no-reply@focusflow.local}
+  storage:
+    provider: ${STORAGE_PROVIDER:local}
+    local-path: ${STORAGE_LOCAL_PATH:./data/attachments}
+    max-file-size-bytes: ${STORAGE_MAX_FILE_SIZE:10485760}
+    s3:
+      bucket: ${S3_BUCKET:}
+      region: ${AWS_REGION:ap-southeast-1}
+      endpoint: ${S3_ENDPOINT:}
 
 logging:
   level:
