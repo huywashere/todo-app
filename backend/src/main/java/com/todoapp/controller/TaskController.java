@@ -74,6 +74,19 @@ public class TaskController {
         return ResponseEntity.ok(ApiResponse.success("Xóa công việc thành công", null));
     }
 
+    @PatchMapping("/{id}/restore")
+    @Operation(summary = "Khôi phục công việc từ thùng rác")
+    public ResponseEntity<ApiResponse<TaskResponse>> restoreTask(@PathVariable String id) {
+        return ResponseEntity.ok(ApiResponse.success("Khôi phục thành công", taskService.restoreTask(id)));
+    }
+
+    @DeleteMapping("/{id}/permanent")
+    @Operation(summary = "Xóa vĩnh viễn công việc")
+    public ResponseEntity<ApiResponse<Void>> permanentlyDeleteTask(@PathVariable String id) {
+        taskService.permanentlyDeleteTask(id);
+        return ResponseEntity.ok(ApiResponse.success("Đã xóa vĩnh viễn", null));
+    }
+
     @PostMapping("/{id}/subtasks")
     @Operation(summary = "Thêm mục kiểm tra con (Subtask)")
     public ResponseEntity<ApiResponse<TaskResponse>> addSubTask(

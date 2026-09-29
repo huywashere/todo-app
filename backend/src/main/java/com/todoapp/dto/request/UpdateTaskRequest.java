@@ -8,6 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
+import java.time.LocalDateTime;
 
 @Data
 @Builder
@@ -25,4 +26,9 @@ public class UpdateTaskRequest {
     private String dateLabel;
     private List<String> tags;
     private Integer order;
+    private String recurrenceRule;
+    private LocalDateTime reminderAt;
+    private Boolean clearReminder;
+    private String assigneeEmail;
+    private Long version;
 }

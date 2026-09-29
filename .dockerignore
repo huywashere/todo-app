@@ -1,0 +1,8 @@
+node_modules
+dist
+backend
+.git
+.github
+test-results
+playwright-report
+*.log

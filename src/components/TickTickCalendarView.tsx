@@ -1,145 +1,99 @@
-import { Fragment } from 'react';
+import { useMemo, useState } from 'react';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Task } from '../types/todo';
+import { localDateKey } from '../utils/date';
 
 interface TickTickCalendarViewProps {
   onSelectTask: (taskId: string) => void;
-  tasks?: Task[];
+  tasks: Task[];
 }
 
-export const TickTickCalendarView: React.FC<TickTickCalendarViewProps> = ({
-  onSelectTask
-}) => {
-  const hours = ['07:00', '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
-  const days = [
-    { label: 'T', day: '6', isCurrent: true, title: 'Tuesday' },
-    { label: 'W', day: '7', isCurrent: false, title: 'Wednesday' },
-    { label: 'T', day: '8', isCurrent: false, title: 'Thursday' },
-  ];
+function startOfWeek(value: Date) {
+  const date = new Date(value);
+  const day = date.getDay() || 7;
+  date.setDate(date.getDate() - day + 1);
+  date.setHours(12, 0, 0, 0);
+  return date;
+}
+
+function dateKey(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export const TickTickCalendarView: React.FC<TickTickCalendarViewProps> = ({ tasks, onSelectTask }) => {
+  const [anchor, setAnchor] = useState(() => new Date());
+  const weekStart = useMemo(() => startOfWeek(anchor), [anchor]);
+  const days = useMemo(() => Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(weekStart);
+    date.setDate(weekStart.getDate() + index);
+    return date;
+  }), [weekStart]);
+  const today = localDateKey();
+
+  const tasksByDate = useMemo(() => {
+    const result = new Map<string, Task[]>();
+    tasks.filter(task => task.dueDate && !task.deletedAt).forEach(task => {
+      const list = result.get(task.dueDate!) || [];
+      list.push(task);
+      result.set(task.dueDate!, list);
+    });
+    result.forEach(list => list.sort((a, b) => (a.time || '23:59').localeCompare(b.time || '23:59')));
+    return result;
+  }, [tasks]);
+
+  const monthTitle = new Intl.DateTimeFormat('vi-VN', { month: 'long', year: 'numeric' }).format(anchor);
 
   return (
-    <div className="calendar-view-container animate-fade">
-      {/* Calendar Header */}
-      <div className="calendar-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <CalendarIcon size={20} style={{ color: '#4772FA' }} />
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>September 2026</h2>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginLeft: '0.5rem' }}>
-            <button type="button" className="icon-btn-ghost"><ChevronLeft size={16} /></button>
-            <button type="button" className="icon-btn-ghost"><ChevronRight size={16} /></button>
-          </div>
+    <section className="calendar-view-container animate-fade">
+      <header className="calendar-header real-calendar-header">
+        <div className="calendar-heading">
+          <CalendarIcon size={20} />
+          <div><span>Lịch công việc</span><h2>{monthTitle}</h2></div>
         </div>
-
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-          <span style={{ fontSize: '0.84rem', color: 'var(--tt-text-muted)' }}>Week View (Timeline)</span>
+        <div className="calendar-controls">
+          <button type="button" className="secondary-action" onClick={() => setAnchor(new Date())}>Hôm nay</button>
+          <button type="button" className="icon-btn-ghost" aria-label="Tuần trước" onClick={() => setAnchor(new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() - 7))}><ChevronLeft size={17} /></button>
+          <button type="button" className="icon-btn-ghost" aria-label="Tuần sau" onClick={() => setAnchor(new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() + 7))}><ChevronRight size={17} /></button>
         </div>
+      </header>
+
+      <div className="real-calendar-week" role="grid" aria-label={`Tuần của ${dateKey(weekStart)}`}>
+        {days.map(day => {
+          const key = dateKey(day);
+          const dayTasks = tasksByDate.get(key) || [];
+          const isToday = key === today;
+          return (
+            <article className={`calendar-day-column ${isToday ? 'today' : ''}`} key={key} role="gridcell">
+              <header>
+                <span>{new Intl.DateTimeFormat('vi-VN', { weekday: 'short' }).format(day)}</span>
+                <strong>{day.getDate()}</strong>
+              </header>
+              <div className="calendar-day-events">
+                {dayTasks.map(task => (
+                  <button
+                    type="button"
+                    className={`calendar-real-event priority-${task.priority} ${task.status === 'completed' ? 'completed' : ''}`}
+                    key={task.id}
+                    onClick={() => onSelectTask(task.id)}
+                  >
+                    <time>{task.time || 'Cả ngày'}</time>
+                    <span>{task.title}</span>
+                    {task.tags[0] && <small>#{task.tags[0]}</small>}
+                  </button>
+                ))}
+                {!dayTasks.length && <span className="calendar-empty-day">Không có việc</span>}
+              </div>
+            </article>
+          );
+        })}
       </div>
-
-      {/* Days Header */}
-      <div style={{ display: 'grid', gridTemplateColumns: '60px repeat(3, 1fr)', gap: '1px', backgroundColor: 'var(--tt-border)', borderTop: '1px solid var(--tt-border)', borderLeft: '1px solid var(--tt-border)', borderRight: '1px solid var(--tt-border)', borderRadius: '8px 8px 0 0' }}>
-        <div style={{ background: 'var(--tt-bg-main)', padding: '0.5rem' }} />
-        {days.map(d => (
-          <div key={d.day} style={{ background: 'var(--tt-bg-main)', padding: '0.65rem', textAlign: 'center' }}>
-            <div style={{ fontSize: '0.74rem', color: 'var(--tt-text-muted)', fontWeight: 600 }}>{d.label}</div>
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: '26px',
-              height: '26px',
-              borderRadius: '50%',
-              backgroundColor: d.isCurrent ? '#4772FA' : 'transparent',
-              color: d.isCurrent ? '#FFF' : 'var(--tt-text-primary)',
-              fontWeight: 700,
-              fontSize: '0.86rem',
-              marginTop: '0.15rem'
-            }}>
-              {d.day}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Grid Timeline matching screenshot */}
-      <div className="calendar-grid-timeline">
-        {hours.map(hour => (
-          <Fragment key={hour}>
-            <div className="timeline-hour">{hour}</div>
-
-            {/* Day 6 column */}
-            <div className="timeline-slot">
-              {hour === '07:00' && (
-                <div className="calendar-event-card event-pink" onClick={() => onSelectTask('task-1')}>
-                  <div>Morning Run</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>07:00 - 08:00</div>
-                </div>
-              )}
-              {hour === '09:00' && (
-                <div className="calendar-event-card event-blue" onClick={() => onSelectTask('task-2')}>
-                  <div>Go Grocery Shopping</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>09:00 - 11:00</div>
-                </div>
-              )}
-              {hour === '12:00' && (
-                <div className="calendar-event-card event-blue" onClick={() => onSelectTask('task-3')}>
-                  <div>Reply to Emails</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>12:00 - 13:00</div>
-                </div>
-              )}
-              {hour === '13:00' && (
-                <div className="calendar-event-card event-cyan" onClick={() => onSelectTask('task-4')}>
-                  <div>Discuss Plan with Client</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>13:00 - 17:00</div>
-                </div>
-              )}
-            </div>
-
-            {/* Day 7 column */}
-            <div className="timeline-slot">
-              {hour === '08:00' && (
-                <div className="calendar-event-card event-pink" onClick={() => onSelectTask('task-5')}>
-                  <div>Shoot Video</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>08:00 - 12:00</div>
-                </div>
-              )}
-              {hour === '13:00' && (
-                <div className="calendar-event-card event-green" onClick={() => onSelectTask('task-6')}>
-                  <div>Host Project Meeting</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>13:00 - 14:00</div>
-                </div>
-              )}
-              {hour === '14:00' && (
-                <div className="calendar-event-card event-green" onClick={() => onSelectTask('task-7')}>
-                  <div>Finalize Promo Video</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>14:30 - 18:00</div>
-                </div>
-              )}
-            </div>
-
-            {/* Day 8 column */}
-            <div className="timeline-slot">
-              {hour === '08:00' && (
-                <div className="calendar-event-card event-green" onClick={() => onSelectTask('task-8')}>
-                  <div>Pick Up Package</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>08:00 - 09:00</div>
-                </div>
-              )}
-              {hour === '09:00' && (
-                <div className="calendar-event-card event-cyan" onClick={() => onSelectTask('task-9')}>
-                  <div>Organize Project Meeting</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>09:00 - 12:00</div>
-                </div>
-              )}
-              {hour === '13:00' && (
-                <div className="calendar-event-card event-blue" onClick={() => onSelectTask('task-10')}>
-                  <div>Complete Client Proposal</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>13:30 - 16:30</div>
-                </div>
-              )}
-            </div>
-          </Fragment>
-        ))}
-      </div>
-    </div>
+      <footer className="calendar-summary">
+        <span>{tasks.filter(task => task.dueDate && !task.deletedAt).length} công việc đã lên lịch</span>
+        <span>Tuần {dateKey(weekStart)} — {dateKey(days[6])}</span>
+      </footer>
+    </section>
   );
 };

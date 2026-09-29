@@ -8,6 +8,7 @@ import com.todoapp.exception.ResourceNotFoundException;
 import com.todoapp.repository.ListRepository;
 import com.todoapp.repository.TaskRepository;
 import com.todoapp.service.ListService;
+import com.todoapp.security.CurrentUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,12 +24,14 @@ public class ListServiceImpl implements ListService {
 
     private final ListRepository listRepository;
     private final TaskRepository taskRepository;
+    private final CurrentUser currentUser;
 
     @Override
     @Transactional(readOnly = true)
     public List<ListResponse> getAllLists() {
-        return listRepository.findAll().stream().map(list -> {
-            long taskCount = taskRepository.findByListIdOrderBySortOrderAsc(list.getId())
+        String ownerId = currentUser.id();
+        return listRepository.findByOwnerIdOrderByCreatedAtAsc(ownerId).stream().map(list -> {
+            long taskCount = taskRepository.findByOwnerIdAndListIdAndDeletedAtIsNullOrderBySortOrderAsc(ownerId, list.getId())
                     .stream()
                     .filter(t -> t.getStatus() != TaskStatus.COMPLETED)
                     .count();
@@ -47,11 +50,13 @@ public class ListServiceImpl implements ListService {
 
     @Override
     public ListResponse createList(CreateListRequest request) {
-        String id = request.getId() != null && !request.getId().trim().isEmpty() ?
-                request.getId().trim() : "list-" + UUID.randomUUID().toString().substring(0, 8);
+        String ownerId = currentUser.id();
+        String id = request.getId() != null && request.getId().matches("list-[a-zA-Z0-9-]{8,58}") ?
+                request.getId().trim() : "list-" + UUID.randomUUID();
 
         ListEntity entity = ListEntity.builder()
                 .id(id)
+                .ownerId(ownerId)
                 .name(request.getName().trim())
                 .emoji(request.getEmoji() != null ? request.getEmoji() : "📁")
                 .color(request.getColor() != null ? request.getColor() : "#4772FA")
@@ -73,8 +78,11 @@ public class ListServiceImpl implements ListService {
 
     @Override
     public void deleteList(String id) {
-        ListEntity entity = listRepository.findById(id)
+        String ownerId = currentUser.id();
+        ListEntity entity = listRepository.findByIdAndOwnerId(id, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy danh mục với id: " + id));
+        taskRepository.findByOwnerIdAndListIdAndDeletedAtIsNullOrderBySortOrderAsc(ownerId, id)
+                .forEach(task -> task.setListId("inbox"));
         listRepository.delete(entity);
     }
 }

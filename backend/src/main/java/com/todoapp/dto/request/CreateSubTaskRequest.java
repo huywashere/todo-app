@@ -12,6 +12,8 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class CreateSubTaskRequest {
 
+    private String clientId;
+
     @NotBlank(message = "Tiêu đề công việc phụ không được để trống")
     private String title;
 }

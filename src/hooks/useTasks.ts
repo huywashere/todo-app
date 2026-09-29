@@ -1,49 +1,129 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import confetti from 'canvas-confetti';
-import type { Task, TaskList, MainNavTab, ActiveListType, ThemeMode, ToastMessage, TaskPriority } from '../types/todo';
+import type { Task, TaskList, MainNavTab, ActiveListType, ThemeMode, ToastMessage, TaskPriority, SyncState, SyncOperationKind } from '../types/todo';
 import { storageService } from '../services/storage';
 import { apiService } from '../services/api';
 import { sound } from '../services/audio';
+import { syncQueue } from '../services/syncQueue';
+import { addDays, localDateKey } from '../utils/date';
 
-export function useTasks() {
+function toApiTaskPayload(task: Partial<Task>): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    ...task,
+    status: task.status?.toUpperCase(),
+    priority: task.priority?.toUpperCase(),
+    subtasks: undefined,
+    createdAt: undefined,
+    updatedAt: undefined,
+    completedAt: undefined,
+    deletedAt: undefined,
+  };
+  if (Object.prototype.hasOwnProperty.call(task, 'reminderAt') && !task.reminderAt) {
+    payload.clearReminder = true;
+    payload.reminderAt = undefined;
+  }
+  return payload;
+}
+
+function normalizeTask(task: Task): Task {
+  return {
+    ...task,
+    status: String(task.status).toLowerCase() as Task['status'],
+    priority: String(task.priority).toLowerCase() as Task['priority'],
+  };
+}
+
+export function useTasks(syncIdentity: string, currentUserEmail?: string) {
+  storageService.setScope(syncIdentity);
+  syncQueue.setScope(syncIdentity);
   const [tasks, setTasks] = useState<Task[]>(() => storageService.loadTasks());
   const [lists, setLists] = useState<TaskList[]>(() => storageService.loadLists());
   const [activeTab, setActiveTab] = useState<MainNavTab>('tasks');
   const [activeList, setActiveList] = useState<ActiveListType>(() => storageService.loadActiveList());
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>('task-2');
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [theme, setThemeState] = useState<ThemeMode>(() => storageService.loadTheme());
   const [searchQuery, setSearchQuery] = useState('');
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [isBackendConnected, setIsBackendConnected] = useState<boolean>(false);
+  const [syncState, setSyncState] = useState<SyncState>(syncIdentity === 'offline' ? 'offline' : 'syncing');
+  const [pendingSyncCount, setPendingSyncCount] = useState(() => syncQueue.count());
+  const syncTimerRef = useRef<number | null>(null);
+  const [todayKey, setTodayKey] = useState(() => localDateKey());
+
+  const flushPending = useCallback(async () => {
+    if (syncIdentity === 'offline' || !navigator.onLine) {
+      setSyncState('offline');
+      setIsBackendConnected(false);
+      setPendingSyncCount(syncQueue.count());
+      return false;
+    }
+    setSyncState('syncing');
+    const result = await syncQueue.flush(setPendingSyncCount);
+    setPendingSyncCount(result.remaining);
+    setIsBackendConnected(!result.error);
+    setSyncState(result.error ? 'error' : 'synced');
+    if (!result.error) {
+      try {
+        const [active, trash, remoteLists] = await Promise.all([
+          apiService.getTasks(),
+          apiService.getTasks('trash'),
+          apiService.getLists(),
+        ]);
+        const remoteTasks = [...active, ...trash].map(normalizeTask);
+        setTasks(remoteTasks);
+        setLists(remoteLists);
+        storageService.saveTasks(remoteTasks);
+        storageService.saveLists(remoteLists);
+      } catch {
+        // The mutation is already durable; the next sync will refresh the snapshot.
+      }
+    }
+    return !result.error;
+  }, [syncIdentity]);
+
+  const scheduleSync = useCallback((delay = 150) => {
+    setPendingSyncCount(syncQueue.count());
+    if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = window.setTimeout(() => void flushPending(), delay);
+  }, [flushPending]);
+
+  const queueMutation = useCallback((kind: SyncOperationKind, entityId: string, payload?: Record<string, unknown>, parentId?: string, delay?: number) => {
+    syncQueue.enqueue(kind, entityId, payload, parentId);
+    scheduleSync(delay);
+  }, [scheduleSync]);
 
   // Sync with Spring Boot backend on mount
   useEffect(() => {
     let isMounted = true;
 
     async function syncWithBackend() {
+      if (syncIdentity === 'offline') {
+        setSyncState('offline');
+        return;
+      }
       try {
-        const [backendTasks, backendLists] = await Promise.all([
+        await flushPending();
+        const [backendTasks, trashedTasks, backendLists] = await Promise.all([
           apiService.getTasks(),
+          apiService.getTasks('trash'),
           apiService.getLists()
         ]);
 
-        if (isMounted && backendTasks.length > 0) {
+        if (isMounted) {
           // Normalize enum lowercase/uppercase for UI compatibility
-          const normalizedTasks: Task[] = backendTasks.map(t => ({
-            ...t,
-            status: String(t.status).toLowerCase() as Task['status'],
-            priority: String(t.priority).toLowerCase() as Task['priority']
-          }));
+          const normalizedTasks: Task[] = [...backendTasks, ...trashedTasks].map(normalizeTask);
 
           setTasks(normalizedTasks);
           setLists(backendLists);
           setIsBackendConnected(true);
+          setSyncState('synced');
           storageService.saveTasks(normalizedTasks);
           storageService.saveLists(backendLists);
         }
       } catch {
         if (isMounted) {
           setIsBackendConnected(false);
+          setSyncState(navigator.onLine ? 'error' : 'offline');
         }
       }
     }
@@ -53,6 +133,29 @@ export function useTasks() {
     return () => {
       isMounted = false;
     };
+  }, [flushPending, syncIdentity]);
+
+  useEffect(() => {
+    const handleOnline = () => void flushPending();
+    const handleOffline = () => {
+      setSyncState('offline');
+      setIsBackendConnected(false);
+    };
+    const handleQueue = (event: Event) => setPendingSyncCount((event as CustomEvent<number>).detail);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('todo-sync-queue', handleQueue);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('todo-sync-queue', handleQueue);
+      if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
+    };
+  }, [flushPending]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setTodayKey(localDateKey()), 60_000);
+    return () => window.clearInterval(timer);
   }, []);
 
   // Apply theme
@@ -107,11 +210,15 @@ export function useTasks() {
       counts[l.id] = 0;
     });
 
-    const todayStr = new Date().toISOString().split('T')[0];
-    const tomorrowStr = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-    const next7Str = new Date(Date.now() + 86400000 * 7).toISOString().split('T')[0];
+    const todayStr = todayKey;
+    const tomorrowStr = addDays(todayKey, 1);
+    const next7Str = addDays(todayKey, 7);
 
     tasks.forEach(t => {
+      if (t.deletedAt) return;
+      if (currentUserEmail && t.assigneeEmail?.toLowerCase() === currentUserEmail.toLowerCase()) {
+        counts.assigned = (counts.assigned || 0) + 1;
+      }
       if (t.status === 'completed') {
         counts.completed = (counts.completed || 0) + 1;
         return;
@@ -135,13 +242,13 @@ export function useTasks() {
     });
 
     return counts;
-  }, [tasks, lists]);
+  }, [tasks, lists, todayKey, currentUserEmail]);
 
   // Filter tasks based on current activeList and searchQuery
   const currentListTasks = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const tomorrowStr = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-    const next7Str = new Date(Date.now() + 86400000 * 7).toISOString().split('T')[0];
+    const todayStr = todayKey;
+    const tomorrowStr = addDays(todayKey, 1);
+    const next7Str = addDays(todayKey, 7);
 
     return tasks.filter(task => {
       if (searchQuery.trim()) {
@@ -151,6 +258,12 @@ export function useTasks() {
                         task.tags.some(tag => tag.toLowerCase().includes(q));
         if (!matches) return false;
       }
+
+      if (activeList === 'trash') {
+        return Boolean(task.deletedAt);
+      }
+
+      if (task.deletedAt) return false;
 
       if (activeList === 'completed') {
         return task.status === 'completed';
@@ -177,12 +290,12 @@ export function useTasks() {
       }
 
       if (activeList === 'assigned') {
-        return true;
+        return Boolean(currentUserEmail && task.assigneeEmail?.toLowerCase() === currentUserEmail.toLowerCase());
       }
 
       return task.listId === activeList;
     });
-  }, [tasks, activeList, searchQuery]);
+  }, [tasks, activeList, searchQuery, todayKey, currentUserEmail]);
 
   const selectedTask = useMemo(() => {
     return tasks.find(t => t.id === selectedTaskId) || null;
@@ -195,19 +308,19 @@ export function useTasks() {
     time?: string,
     priority: TaskPriority = 'none'
   ): Task => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = localDateKey();
     let dateLabel = 'Today';
     let dueDate = todayStr;
 
     if (activeList === 'tomorrow') {
       dateLabel = 'Tomorrow';
-      dueDate = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+      dueDate = addDays(todayStr, 1);
     } else if (activeList === 'next7days') {
       dateLabel = 'Next 7 Days';
-      dueDate = new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0];
+      dueDate = addDays(todayStr, 3);
     }
 
-    const localId = 'task-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+    const localId = 'task-' + crypto.randomUUID();
     const newTask: Task = {
       id: localId,
       title: title.trim(),
@@ -223,33 +336,29 @@ export function useTasks() {
       order: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
+      ,assigneeEmail: currentUserEmail
     };
 
     setTasks(prev => [newTask, ...prev.map(t => ({ ...t, order: t.order + 1 }))]);
     setSelectedTaskId(localId);
     sound.playDrop();
 
-    // Async sync to Spring Boot
-    apiService.createTask({
+    queueMutation('task.create', localId, {
+      clientId: localId,
       title: newTask.title,
       description: newTask.description,
-      priority: newTask.priority.toUpperCase() as TaskPriority,
+      priority: newTask.priority.toUpperCase(),
       listId: newTask.listId,
       time: newTask.time,
       dueDate: newTask.dueDate,
-      dateLabel: newTask.dateLabel
-    }).then(created => {
-      setIsBackendConnected(true);
-      if (created.id !== localId) {
-        setTasks(prev => prev.map(t => t.id === localId ? { ...t, id: created.id } : t));
-        setSelectedTaskId(created.id);
-      }
-    }).catch(() => {
-      // Local fallback silently preserved
+      dateLabel: newTask.dateLabel,
+      tags: newTask.tags,
+      recurrenceRule: 'NONE',
+      assigneeEmail: currentUserEmail,
     });
 
     return newTask;
-  }, [activeList]);
+  }, [activeList, queueMutation, currentUserEmail]);
 
   const updateTask = useCallback((id: string, updates: Partial<Task>) => {
     setTasks(prev => prev.map(t => {
@@ -264,12 +373,8 @@ export function useTasks() {
       return t;
     }));
 
-    apiService.updateTask(id, {
-      ...updates,
-      status: updates.status ? updates.status.toUpperCase() as Task['status'] : undefined,
-      priority: updates.priority ? updates.priority.toUpperCase() as Task['priority'] : undefined,
-    }).catch(() => {});
-  }, []);
+    queueMutation('task.update', id, toApiTaskPayload(updates), undefined, 600);
+  }, [queueMutation]);
 
   const toggleTaskStatus = useCallback((id: string) => {
     setTasks(prev => {
@@ -302,32 +407,96 @@ export function useTasks() {
       });
     });
 
-    apiService.toggleTask(id).catch(() => {});
-  }, []);
+    const task = tasks.find(item => item.id === id);
+    if (task) {
+      queueMutation('task.update', id, {
+        status: task.status === 'completed' ? 'TODO' : 'COMPLETED',
+      });
+    }
+  }, [queueMutation, tasks]);
 
   const deleteTask = useCallback((id: string) => {
-    let deletedTask: Task | undefined;
-    setTasks(prev => {
-      deletedTask = prev.find(t => t.id === id);
-      return prev.filter(t => t.id !== id);
-    });
+    const deletedTask = tasks.find(t => t.id === id);
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, deletedAt: new Date().toISOString() } : t));
     sound.playClick();
     if (selectedTaskId === id) {
       setSelectedTaskId(null);
     }
 
-    apiService.deleteTask(id).catch(() => {});
+    queueMutation('task.delete', id);
 
     if (deletedTask) {
       addToast('Deleted task', 'info', 'Undo', () => {
         if (deletedTask) {
-          setTasks(prev => [deletedTask!, ...prev]);
+          setTasks(prev => prev.map(t => t.id === id ? { ...deletedTask!, deletedAt: undefined } : t));
           setSelectedTaskId(deletedTask.id);
-          apiService.createTask(deletedTask).catch(() => {});
+          queueMutation('task.restore', id);
         }
       });
     }
-  }, [selectedTaskId, addToast]);
+  }, [selectedTaskId, addToast, queueMutation, tasks]);
+
+  const restoreTask = useCallback((id: string) => {
+    setTasks(prev => prev.map(task => task.id === id ? { ...task, deletedAt: undefined } : task));
+    queueMutation('task.restore', id);
+    addToast('Task restored to its list', 'success');
+  }, [addToast, queueMutation]);
+
+  const permanentlyDeleteTask = useCallback((id: string) => {
+    setTasks(prev => prev.filter(task => task.id !== id));
+    if (selectedTaskId === id) setSelectedTaskId(null);
+    queueMutation('task.permanentDelete', id);
+    addToast('Task permanently deleted', 'success');
+  }, [addToast, queueMutation, selectedTaskId]);
+
+  const duplicateTask = useCallback((id: string) => {
+    const source = tasks.find(task => task.id === id);
+    if (!source) return;
+    const duplicate = addTask(`${source.title} (copy)`, source.listId, source.time, source.priority);
+    updateTask(duplicate.id, {
+      description: source.description,
+      dueDate: source.dueDate,
+      dateLabel: source.dateLabel,
+      tags: [...source.tags],
+      recurrenceRule: source.recurrenceRule,
+      reminderAt: source.reminderAt,
+      assigneeEmail: source.assigneeEmail,
+    });
+  }, [addTask, tasks, updateTask]);
+
+  const reorderTasks = useCallback((draggedId: string, targetId: string, newStatus?: Task['status']) => {
+    setTasks(prev => {
+      const ordered = [...prev];
+      const sourceIndex = ordered.findIndex(task => task.id === draggedId);
+      const targetIndex = ordered.findIndex(task => task.id === targetId);
+      if (sourceIndex < 0 || targetIndex < 0) return prev;
+      const [moved] = ordered.splice(sourceIndex, 1);
+      const nextMoved = newStatus ? { ...moved, status: newStatus } : moved;
+      ordered.splice(targetIndex, 0, nextMoved);
+      const changed = ordered.map((task, index) => ({ ...task, order: index }));
+      changed.forEach(task => {
+        const original = prev.find(item => item.id === task.id);
+        if (original && (original.order !== task.order || original.status !== task.status)) {
+          queueMutation('task.update', task.id, {
+            order: task.order,
+            ...(original.status !== task.status ? { status: task.status.toUpperCase() } : {}),
+          });
+        }
+      });
+      return changed;
+    });
+  }, [queueMutation]);
+
+  const moveTaskToStatus = useCallback((id: string, status: Task['status']) => {
+    updateTask(id, { status, completedAt: status === 'completed' ? new Date().toISOString() : undefined });
+  }, [updateTask]);
+
+  const clearCompleted = useCallback(() => {
+    const ids = tasks.filter(task => !task.deletedAt && task.status === 'completed').map(task => task.id);
+    setTasks(prev => prev.map(task => ids.includes(task.id) ? { ...task, deletedAt: new Date().toISOString() } : task));
+    ids.forEach(id => queueMutation('task.delete', id));
+    addToast(`${ids.length} completed task${ids.length === 1 ? '' : 's'} moved to trash`, 'success');
+  }, [addToast, queueMutation, tasks]);
 
   // Subtasks
   const toggleSubTask = useCallback((taskId: string, subtaskId: string) => {
@@ -340,12 +509,12 @@ export function useTasks() {
     }));
     sound.playClick();
 
-    apiService.toggleSubTask(taskId, subtaskId).catch(() => {});
-  }, []);
+    queueMutation('subtask.toggle', subtaskId, undefined, taskId);
+  }, [queueMutation]);
 
   const addSubTask = useCallback((taskId: string, title: string) => {
     if (!title.trim()) return;
-    const tempId = 'st-' + Date.now();
+    const tempId = 'st-' + crypto.randomUUID();
     const newSubtask = {
       id: tempId,
       title: title.trim(),
@@ -360,13 +529,8 @@ export function useTasks() {
     }));
     sound.playClick();
 
-    apiService.addSubTask(taskId, title.trim()).then(updated => {
-      setTasks(prev => prev.map(t => t.id === taskId ? {
-        ...t,
-        subtasks: updated.subtasks
-      } : t));
-    }).catch(() => {});
-  }, []);
+    queueMutation('subtask.create', tempId, { title: title.trim(), clientId: tempId }, taskId);
+  }, [queueMutation]);
 
   const deleteSubTask = useCallback((taskId: string, subtaskId: string) => {
     setTasks(prev => prev.map(task => {
@@ -380,14 +544,14 @@ export function useTasks() {
       return task;
     }));
 
-    apiService.deleteSubTask(taskId, subtaskId).catch(() => {});
-  }, []);
+    queueMutation('subtask.delete', subtaskId, undefined, taskId);
+  }, [queueMutation]);
 
   // Lists management
   const addList = useCallback((name: string, emoji: string = '📁', color: string = '#4772FA') => {
     if (!name.trim()) return;
     const newList: TaskList = {
-      id: 'list-' + Date.now(),
+      id: 'list-' + crypto.randomUUID(),
       name: name.trim(),
       emoji,
       color,
@@ -398,8 +562,8 @@ export function useTasks() {
     sound.playDrop();
     addToast(`Added list "${newList.name}"`, 'success');
 
-    apiService.createList(newList).catch(() => {});
-  }, [addToast]);
+    queueMutation('list.create', newList.id, newList as unknown as Record<string, unknown>);
+  }, [addToast, queueMutation]);
 
   const deleteList = useCallback((id: string) => {
     setLists(prev => prev.filter(l => l.id !== id));
@@ -407,8 +571,8 @@ export function useTasks() {
       setActiveList('inbox');
     }
     sound.playClick();
-    apiService.deleteList(id).catch(() => {});
-  }, [activeList]);
+    queueMutation('list.delete', id);
+  }, [activeList, queueMutation]);
 
   return {
     tasks,
@@ -423,6 +587,9 @@ export function useTasks() {
     listCounts,
     currentListTasks,
     isBackendConnected,
+    syncState,
+    pendingSyncCount,
+    syncNow: flushPending,
     setActiveTab,
     setActiveList,
     setSelectedTaskId,
@@ -432,12 +599,19 @@ export function useTasks() {
     updateTask,
     toggleTaskStatus,
     deleteTask,
+    restoreTask,
+    permanentlyDeleteTask,
+    duplicateTask,
+    reorderTasks,
+    moveTaskToStatus,
+    clearCompleted,
     toggleSubTask,
     addSubTask,
     deleteSubTask,
     addList,
     deleteList,
     removeToast,
+    showToast: addToast,
     exportBackup: () => storageService.exportBackup(tasks, lists),
     importBackup: (json: string) => {
       try {

@@ -1,0 +1,12 @@
+{
+  "name": "FocusFlow Task Manager",
+  "short_name": "FocusFlow",
+  "description": "Offline-first personal task management",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111827",
+  "theme_color": "#4772fa",
+  "icons": [
+    { "src": "/focusflow-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

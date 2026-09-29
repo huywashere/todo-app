@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { X, Check, Trash2, Plus, Calendar, Tag, Flag, AlignLeft, CheckSquare } from 'lucide-react';
 import type { Task, TaskStatus, TaskPriority } from '../types/todo';
 
@@ -21,25 +21,13 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   onAddSubTask,
   onDeleteSubTask
 }) => {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [status, setStatus] = useState<TaskStatus>('todo');
-  const [priority, setPriority] = useState<TaskPriority>('medium');
-  const [dueDate, setDueDate] = useState('');
-  const [tagsInput, setTagsInput] = useState('');
+  const [title, setTitle] = useState(task?.title ?? '');
+  const [description, setDescription] = useState(task?.description ?? '');
+  const [status, setStatus] = useState<TaskStatus>(task?.status ?? 'todo');
+  const [priority, setPriority] = useState<TaskPriority>(task?.priority ?? 'medium');
+  const [dueDate, setDueDate] = useState(task?.dueDate ?? '');
+  const [tagsInput, setTagsInput] = useState(task?.tags.join(', ') ?? '');
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
-
-  useEffect(() => {
-    if (task) {
-      setTitle(task.title);
-      setDescription(task.description || '');
-      setStatus(task.status);
-      setPriority(task.priority);
-      setDueDate(task.dueDate || '');
-      setTagsInput(task.tags.join(', '));
-      setNewSubtaskTitle('');
-    }
-  }, [task]);
 
   if (!isOpen || !task) return null;
 

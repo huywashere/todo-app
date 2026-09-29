@@ -8,12 +8,15 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
+import java.time.LocalDateTime;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class CreateTaskRequest {
+
+    private String clientId;
 
     @NotBlank(message = "Tiêu đề công việc không được để trống")
     private String title;
@@ -25,4 +28,7 @@ public class CreateTaskRequest {
     private String dueDate;
     private String dateLabel;
     private List<String> tags;
+    private String recurrenceRule;
+    private LocalDateTime reminderAt;
+    private String assigneeEmail;
 }

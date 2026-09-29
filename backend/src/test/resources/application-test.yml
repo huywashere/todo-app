@@ -1,0 +1,29 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:todotest;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+  flyway:
+    enabled: false
+
+debug: false
+logging:
+  level:
+    root: WARN
+    com.todoapp: INFO
+    org.hibernate.SQL: WARN
+
+app:
+  seed:
+    enabled: false
+  cors:
+    allowed-origin-patterns: http://localhost:*
+  security:
+    jwt-secret: integration-test-secret-that-is-long-enough-for-hmac-validation
+    access-token-seconds: 900
+    refresh-token-days: 30

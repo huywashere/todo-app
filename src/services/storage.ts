@@ -1,9 +1,8 @@
 import type { Task, TaskList, ThemeMode, ActiveListType } from '../types/todo';
 
-const TASKS_STORAGE_KEY = 'ticktick_tasks_v2';
-const LISTS_STORAGE_KEY = 'ticktick_lists_v2';
-const THEME_STORAGE_KEY = 'ticktick_theme_v2';
-const ACTIVE_LIST_KEY = 'ticktick_activelist_v2';
+let storageScope = 'guest';
+const scopedKey = (name: string) => `focusflow_${storageScope}_${name}_v3`;
+const THEME_STORAGE_KEY = 'focusflow_theme_v3';
 
 export const INITIAL_LISTS: TaskList[] = [
   { id: 'september-plan', name: 'September Plan', emoji: '🚀', color: '#3B82F6', hasDot: true },
@@ -246,11 +245,16 @@ export const INITIAL_TASKS: Task[] = [
 ];
 
 export const storageService = {
+  setScope(scope: string): void {
+    storageScope = scope.replace(/[^a-zA-Z0-9_-]/g, '_') || 'guest';
+  },
+
   loadTasks(): Task[] {
     try {
-      const data = localStorage.getItem(TASKS_STORAGE_KEY);
+      const key = scopedKey('tasks');
+      const data = localStorage.getItem(key);
       if (!data) {
-        localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(INITIAL_TASKS));
+        localStorage.setItem(key, JSON.stringify(INITIAL_TASKS));
         return INITIAL_TASKS;
       }
       return JSON.parse(data) as Task[];
@@ -261,7 +265,7 @@ export const storageService = {
 
   saveTasks(tasks: Task[]): void {
     try {
-      localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(tasks));
+      localStorage.setItem(scopedKey('tasks'), JSON.stringify(tasks));
     } catch (e) {
       console.error('Lỗi khi ghi tasks:', e);
     }
@@ -269,9 +273,10 @@ export const storageService = {
 
   loadLists(): TaskList[] {
     try {
-      const data = localStorage.getItem(LISTS_STORAGE_KEY);
+      const key = scopedKey('lists');
+      const data = localStorage.getItem(key);
       if (!data) {
-        localStorage.setItem(LISTS_STORAGE_KEY, JSON.stringify(INITIAL_LISTS));
+        localStorage.setItem(key, JSON.stringify(INITIAL_LISTS));
         return INITIAL_LISTS;
       }
       return JSON.parse(data) as TaskList[];
@@ -282,7 +287,7 @@ export const storageService = {
 
   saveLists(lists: TaskList[]): void {
     try {
-      localStorage.setItem(LISTS_STORAGE_KEY, JSON.stringify(lists));
+      localStorage.setItem(scopedKey('lists'), JSON.stringify(lists));
     } catch (e) {
       console.error('Lỗi khi ghi lists:', e);
     }
@@ -290,7 +295,7 @@ export const storageService = {
 
   loadActiveList(): ActiveListType {
     try {
-      const val = localStorage.getItem(ACTIVE_LIST_KEY);
+      const val = localStorage.getItem(scopedKey('active_list'));
       return val || 'inbox';
     } catch {
       return 'inbox';
@@ -299,7 +304,7 @@ export const storageService = {
 
   saveActiveList(activeList: ActiveListType): void {
     try {
-      localStorage.setItem(ACTIVE_LIST_KEY, activeList);
+      localStorage.setItem(scopedKey('active_list'), activeList);
     } catch (e) {
       console.error('Lỗi khi lưu active list:', e);
     }
@@ -323,24 +328,27 @@ export const storageService = {
   },
 
   exportBackup(tasks: Task[], lists: TaskList[]): void {
-    const backup = { tasks, lists, exportedAt: new Date().toISOString() };
+    const backup = { schemaVersion: 3, tasks, lists, exportedAt: new Date().toISOString() };
     const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backup, null, 2));
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', dataStr);
-    downloadAnchor.setAttribute('download', `ticktick-backup-${new Date().toISOString().split('T')[0]}.json`);
+    downloadAnchor.setAttribute('download', `focusflow-backup-${new Date().toISOString().split('T')[0]}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
   },
 
   importBackup(jsonString: string): { tasks: Task[]; lists: TaskList[] } {
-    const parsed = JSON.parse(jsonString);
+    const parsed = JSON.parse(jsonString) as { tasks?: unknown; lists?: unknown } | unknown[];
     if (Array.isArray(parsed)) {
-      return { tasks: parsed, lists: INITIAL_LISTS };
+      return { tasks: parsed as Task[], lists: INITIAL_LISTS };
+    }
+    if (!Array.isArray(parsed.tasks) || !Array.isArray(parsed.lists)) {
+      throw new Error('Tệp sao lưu không đúng định dạng FocusFlow');
     }
     return {
-      tasks: parsed.tasks || INITIAL_TASKS,
-      lists: parsed.lists || INITIAL_LISTS
+      tasks: parsed.tasks as Task[],
+      lists: parsed.lists as TaskList[]
     };
   }
 };

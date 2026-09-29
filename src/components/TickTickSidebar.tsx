@@ -12,19 +12,23 @@ import {
 import type { TaskList, ActiveListType } from '../types/todo';
 
 interface TickTickSidebarProps {
+  isOpen?: boolean;
   activeList: ActiveListType;
   onSelectList: (listId: ActiveListType) => void;
   lists: TaskList[];
   counts: Record<string, number>;
   onAddList: (name: string, emoji?: string, color?: string) => void;
+  onDeleteList: (id: string) => void;
 }
 
 export const TickTickSidebar: React.FC<TickTickSidebarProps> = ({
+  isOpen = false,
   activeList,
   onSelectList,
   lists,
   counts,
-  onAddList
+  onAddList,
+  onDeleteList
 }) => {
   const [isListsExpanded, setIsListsExpanded] = useState(true);
   const [isAddingList, setIsAddingList] = useState(false);
@@ -40,7 +44,7 @@ export const TickTickSidebar: React.FC<TickTickSidebarProps> = ({
   };
 
   return (
-    <aside className="tt-sidebar">
+    <aside className={`tt-sidebar ${isOpen ? 'mobile-open' : ''}`}>
       {/* 1. Smart Lists */}
       <div className="sidebar-section">
         <button
@@ -53,7 +57,7 @@ export const TickTickSidebar: React.FC<TickTickSidebarProps> = ({
             <span className="sidebar-item-name">Today</span>
           </div>
           <span className="sidebar-item-count" style={{ color: '#4772FA' }}>
-            {counts.today || 11}
+            {counts.today ?? 0}
           </span>
         </button>
 
@@ -67,7 +71,7 @@ export const TickTickSidebar: React.FC<TickTickSidebarProps> = ({
             <span className="sidebar-item-name">Tomorrow</span>
           </div>
           <span className="sidebar-item-count">
-            {counts.tomorrow || 7}
+            {counts.tomorrow ?? 0}
           </span>
         </button>
 
@@ -81,7 +85,7 @@ export const TickTickSidebar: React.FC<TickTickSidebarProps> = ({
             <span className="sidebar-item-name">Next 7 Days</span>
           </div>
           <span className="sidebar-item-count">
-            {counts.next7days || 24}
+            {counts.next7days ?? 0}
           </span>
         </button>
 
@@ -106,7 +110,7 @@ export const TickTickSidebar: React.FC<TickTickSidebarProps> = ({
             <span className="sidebar-item-name">Inbox</span>
           </div>
           <span className="sidebar-item-count">
-            {counts.inbox || 10}
+            {counts.inbox ?? 0}
           </span>
         </button>
       </div>
@@ -146,23 +150,37 @@ export const TickTickSidebar: React.FC<TickTickSidebarProps> = ({
             {lists.map(list => {
               const count = counts[list.id];
               return (
-                <button
-                  key={list.id}
-                  type="button"
-                  className={`sidebar-item ${activeList === list.id ? 'active' : ''}`}
-                  onClick={() => onSelectList(list.id)}
-                >
-                  <div className="sidebar-item-left">
-                    <span style={{ fontSize: '1rem', lineHeight: 1 }}>{list.emoji || '📁'}</span>
-                    <span className="sidebar-item-name">{list.name}</span>
-                    {list.hasDot && (
-                      <span className="list-dot" style={{ backgroundColor: list.color || '#4772FA' }} />
+                <div className="sidebar-list-row" key={list.id}>
+                  <button
+                    type="button"
+                    className={`sidebar-item ${activeList === list.id ? 'active' : ''}`}
+                    onClick={() => onSelectList(list.id)}
+                  >
+                    <div className="sidebar-item-left">
+                      <span style={{ fontSize: '1rem', lineHeight: 1 }}>{list.emoji || '📁'}</span>
+                      <span className="sidebar-item-name">{list.name}</span>
+                      {list.hasDot && (
+                        <span className="list-dot" style={{ backgroundColor: list.color || '#4772FA' }} />
+                      )}
+                    </div>
+                    {count !== undefined && count > 0 && (
+                      <span className="sidebar-item-count">{count}</span>
                     )}
-                  </div>
-                  {count !== undefined && count > 0 && (
-                    <span className="sidebar-item-count">{count}</span>
-                  )}
-                </button>
+                  </button>
+                  <button
+                    type="button"
+                    className="list-delete-btn"
+                    title={`Xóa danh sách ${list.name}`}
+                    aria-label={`Xóa danh sách ${list.name}`}
+                    onClick={() => {
+                      if (window.confirm(`Xóa danh sách “${list.name}”? Công việc sẽ được chuyển về Inbox.`)) {
+                        onDeleteList(list.id);
+                      }
+                    }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               );
             })}
 

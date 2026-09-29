@@ -8,9 +8,21 @@ import {
   Plus,
   Inbox,
   X,
-  ListTodo
+  ListTodo,
+  RotateCcw
 } from 'lucide-react';
 import type { Task, TaskPriority, TaskList } from '../types/todo';
+
+function utcToLocalInput(value?: string) {
+  if (!value) return '';
+  const date = new Date(value.endsWith('Z') ? value : `${value}Z`);
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+function localInputToUtc(value: string) {
+  return value ? new Date(value).toISOString().slice(0, 19) : undefined;
+}
 
 interface TickTickDetailPaneProps {
   task: Task | null;
@@ -18,6 +30,8 @@ interface TickTickDetailPaneProps {
   onUpdateTask: (id: string, updates: Partial<Task>) => void;
   onToggleTask: (id: string) => void;
   onDeleteTask: (id: string) => void;
+  onRestoreTask: (id: string) => void;
+  onPermanentlyDeleteTask: (id: string) => void;
   onToggleSubtask: (taskId: string, subtaskId: string) => void;
   onAddSubtask: (taskId: string, title: string) => void;
   onDeleteSubtask: (taskId: string, subtaskId: string) => void;
@@ -30,6 +44,8 @@ export const TickTickDetailPane: React.FC<TickTickDetailPaneProps> = ({
   onUpdateTask,
   onToggleTask,
   onDeleteTask,
+  onRestoreTask,
+  onPermanentlyDeleteTask,
   onToggleSubtask,
   onAddSubtask,
   onDeleteSubtask,
@@ -143,6 +159,45 @@ export const TickTickDetailPane: React.FC<TickTickDetailPaneProps> = ({
           rows={2}
         />
 
+        <div className="task-field-grid">
+          <label>
+            Due date
+            <input type="date" value={task.dueDate || ''} onChange={event => onUpdateTask(task.id, { dueDate: event.target.value, dateLabel: event.target.value })} />
+          </label>
+          <label>
+            Time
+            <input type="time" value={task.time?.includes(':') ? task.time : ''} onChange={event => onUpdateTask(task.id, { time: event.target.value })} />
+          </label>
+          <label>
+            Repeat
+            <select value={task.recurrenceRule || 'NONE'} onChange={event => onUpdateTask(task.id, { recurrenceRule: event.target.value as Task['recurrenceRule'] })}>
+              <option value="NONE">Does not repeat</option>
+              <option value="DAILY">Daily</option>
+              <option value="WEEKLY">Weekly</option>
+              <option value="MONTHLY">Monthly</option>
+            </select>
+          </label>
+          <label>
+            List
+            <select value={task.listId || 'inbox'} onChange={event => onUpdateTask(task.id, { listId: event.target.value })}>
+              <option value="inbox">Inbox</option>
+              {lists.map(list => <option key={list.id} value={list.id}>{list.name}</option>)}
+            </select>
+          </label>
+          <label className="field-wide">
+            Reminder
+            <input type="datetime-local" value={utcToLocalInput(task.reminderAt)} onChange={event => onUpdateTask(task.id, { reminderAt: localInputToUtc(event.target.value) })} />
+          </label>
+          <label className="field-wide">
+            Tags
+            <input value={task.tags.join(', ')} onChange={event => onUpdateTask(task.id, { tags: event.target.value.split(',').map(tag => tag.trim()).filter(Boolean) })} placeholder="work, important" />
+          </label>
+          <label className="field-wide">
+            Assignee
+            <input type="email" value={task.assigneeEmail || ''} onChange={event => onUpdateTask(task.id, { assigneeEmail: event.target.value })} placeholder="name@example.com" />
+          </label>
+        </div>
+
         {/* Subtasks Checklist */}
         <div className="subtasks-container">
           {task.subtasks.map(subtask => (
@@ -192,15 +247,16 @@ export const TickTickDetailPane: React.FC<TickTickDetailPaneProps> = ({
           <span>{listName}</span>
         </div>
 
-        <button
-          type="button"
-          className="icon-btn-ghost"
-          onClick={() => onDeleteTask(task.id)}
-          title="Xóa công việc"
-          style={{ color: '#F5222D' }}
-        >
-          <Trash2 size={16} />
-        </button>
+        {task.deletedAt ? (
+          <div className="trash-actions">
+            <button type="button" className="restore-task-btn" onClick={() => onRestoreTask(task.id)}><RotateCcw size={15} /> Restore</button>
+            <button type="button" className="danger-action compact" onClick={() => { if (window.confirm('Xóa vĩnh viễn công việc này?')) onPermanentlyDeleteTask(task.id); }}><Trash2 size={14} /> Delete forever</button>
+          </div>
+        ) : (
+          <button type="button" className="icon-btn-ghost" onClick={() => onDeleteTask(task.id)} title="Move to trash" style={{ color: '#F5222D' }}>
+            <Trash2 size={16} />
+          </button>
+        )}
       </div>
     </aside>
   );

@@ -17,6 +17,9 @@ public class ListEntity {
     @Column(length = 64)
     private String id;
 
+    @Column(nullable = false, length = 64)
+    private String ownerId;
+
     @Column(nullable = false, length = 120)
     private String name;
 

@@ -23,6 +23,10 @@ public interface TaskService {
 
     void deleteTask(String id);
 
+    TaskResponse restoreTask(String id);
+
+    void permanentlyDeleteTask(String id);
+
     TaskResponse addSubTask(String taskId, CreateSubTaskRequest request);
 
     TaskResponse toggleSubTask(String taskId, String subTaskId);

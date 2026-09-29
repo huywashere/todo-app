@@ -3,9 +3,12 @@ package com.todoapp.config;
 import com.todoapp.entity.*;
 import com.todoapp.repository.ListRepository;
 import com.todoapp.repository.TaskRepository;
+import com.todoapp.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -14,12 +17,15 @@ import java.util.Arrays;
 import java.util.List;
 
 @Component
+@ConditionalOnProperty(name = "app.seed.enabled", havingValue = "true", matchIfMissing = true)
 @RequiredArgsConstructor
 @Slf4j
 public class DataInitializer implements CommandLineRunner {
 
     private final ListRepository listRepository;
     private final TaskRepository taskRepository;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @Override
     public void run(String... args) {
@@ -27,16 +33,28 @@ public class DataInitializer implements CommandLineRunner {
             return;
         }
 
-        log.info("Khởi tạo dữ liệu mẫu cho TickTick Spring Boot Backend...");
+        log.info("Khởi tạo dữ liệu mẫu cho Todo Spring Boot Backend...");
+
+        String demoUserId = "user-demo";
+        if (!userRepository.existsById(demoUserId)) {
+            userRepository.save(UserEntity.builder()
+                    .id(demoUserId)
+                    .email("demo@todo.local")
+                    .displayName("Demo User")
+                    .passwordHash(passwordEncoder.encode("TodoDemo!2026"))
+                    .role("USER")
+                    .enabled(true)
+                    .build());
+        }
 
         // 1. Seed custom lists
         List<ListEntity> initialLists = Arrays.asList(
-                ListEntity.builder().id("september-plan").name("September Plan").emoji("🚀").color("#3B82F6").hasDot(true).build(),
-                ListEntity.builder().id("work-hard").name("Work Hard").emoji("💼").color("#F59E0B").hasDot(false).build(),
-                ListEntity.builder().id("life-memo").name("Life Memo").emoji("🏡").color("#10B981").hasDot(true).build(),
-                ListEntity.builder().id("life").name("Life").emoji("💖").color("#EC4899").hasDot(false).build(),
-                ListEntity.builder().id("workout-plan").name("Workout Plan").emoji("🏃").color("#8B5CF6").hasDot(false).build(),
-                ListEntity.builder().id("wishlist").name("Wishlist").emoji("✨").color("#F97316").hasDot(false).build()
+                ListEntity.builder().id("september-plan").ownerId(demoUserId).name("September Plan").emoji("🚀").color("#3B82F6").hasDot(true).build(),
+                ListEntity.builder().id("work-hard").ownerId(demoUserId).name("Work Hard").emoji("💼").color("#F59E0B").hasDot(false).build(),
+                ListEntity.builder().id("life-memo").ownerId(demoUserId).name("Life Memo").emoji("🏡").color("#10B981").hasDot(true).build(),
+                ListEntity.builder().id("life").ownerId(demoUserId).name("Life").emoji("💖").color("#EC4899").hasDot(false).build(),
+                ListEntity.builder().id("workout-plan").ownerId(demoUserId).name("Workout Plan").emoji("🏃").color("#8B5CF6").hasDot(false).build(),
+                ListEntity.builder().id("wishlist").ownerId(demoUserId).name("Wishlist").emoji("✨").color("#F97316").hasDot(false).build()
         );
         listRepository.saveAll(initialLists);
 
@@ -47,6 +65,7 @@ public class DataInitializer implements CommandLineRunner {
 
         TaskEntity task1 = TaskEntity.builder()
                 .id("task-1")
+                .ownerId(demoUserId)
                 .title("Morning Run")
                 .description("Chạy bộ 5km quanh công viên và giãn cơ")
                 .status(TaskStatus.TODO)
@@ -64,6 +83,7 @@ public class DataInitializer implements CommandLineRunner {
 
         TaskEntity task2 = TaskEntity.builder()
                 .id("task-2")
+                .ownerId(demoUserId)
                 .title("Go Grocery Shopping")
                 .description("Prepare Shopping Bags in Advance")
                 .status(TaskStatus.TODO)
@@ -84,6 +104,7 @@ public class DataInitializer implements CommandLineRunner {
 
         TaskEntity task3 = TaskEntity.builder()
                 .id("task-3")
+                .ownerId(demoUserId)
                 .title("Reply to Emails")
                 .description("Xử lý hộp thư đến chăm sóc khách hàng")
                 .status(TaskStatus.TODO)
@@ -99,6 +120,7 @@ public class DataInitializer implements CommandLineRunner {
 
         TaskEntity task4 = TaskEntity.builder()
                 .id("task-4")
+                .ownerId(demoUserId)
                 .title("Discuss Plan with Client")
                 .description("Họp trực tuyến trao đổi lộ trình bàn giao quý 4")
                 .status(TaskStatus.TODO)
@@ -114,6 +136,7 @@ public class DataInitializer implements CommandLineRunner {
 
         TaskEntity task5 = TaskEntity.builder()
                 .id("task-5")
+                .ownerId(demoUserId)
                 .title("Shoot Video")
                 .description("Quay video hướng dẫn kiến trúc chuẩn")
                 .status(TaskStatus.TODO)
@@ -129,6 +152,7 @@ public class DataInitializer implements CommandLineRunner {
 
         TaskEntity task6 = TaskEntity.builder()
                 .id("task-6")
+                .ownerId(demoUserId)
                 .title("Host Project Meeting")
                 .description("Họp đánh giá tiến độ sprint với tech leads")
                 .status(TaskStatus.TODO)
@@ -144,6 +168,7 @@ public class DataInitializer implements CommandLineRunner {
 
         TaskEntity task7 = TaskEntity.builder()
                 .id("task-7")
+                .ownerId(demoUserId)
                 .title("Finalize Promo Video")
                 .description("Xuất file video độ phân giải cao")
                 .status(TaskStatus.TODO)
@@ -159,6 +184,7 @@ public class DataInitializer implements CommandLineRunner {
 
         TaskEntity task8 = TaskEntity.builder()
                 .id("task-8")
+                .ownerId(demoUserId)
                 .title("Pick Up Package")
                 .description("Lấy bưu kiện tại bưu điện trung tâm")
                 .status(TaskStatus.TODO)
@@ -174,6 +200,7 @@ public class DataInitializer implements CommandLineRunner {
 
         TaskEntity task9 = TaskEntity.builder()
                 .id("task-9")
+                .ownerId(demoUserId)
                 .title("Organize Project Meeting")
                 .description("Đồng bộ kế hoạch với đội ngũ thiết kế")
                 .status(TaskStatus.TODO)
@@ -189,6 +216,7 @@ public class DataInitializer implements CommandLineRunner {
 
         TaskEntity task10 = TaskEntity.builder()
                 .id("task-10")
+                .ownerId(demoUserId)
                 .title("Complete Client Proposal")
                 .description("Hoàn tất và gửi hồ sơ chào thầu")
                 .status(TaskStatus.TODO)
@@ -202,7 +230,9 @@ public class DataInitializer implements CommandLineRunner {
                 .subtasks(new ArrayList<>())
                 .build();
 
-        taskRepository.saveAll(Arrays.asList(task1, task2, task3, task4, task5, task6, task7, task8, task9, task10));
+        List<TaskEntity> demoTasks = Arrays.asList(task1, task2, task3, task4, task5, task6, task7, task8, task9, task10);
+        demoTasks.forEach(task -> task.setAssigneeEmail("demo@todo.local"));
+        taskRepository.saveAll(demoTasks);
         log.info("Dữ liệu mẫu đã được khởi tạo thành công với {} công việc!", taskRepository.count());
     }
 }

@@ -18,4 +18,6 @@ public class TaskStatsResponse {
     private long tomorrowCount;
     private long next7DaysCount;
     private long inboxCount;
+    private long overdue;
+    private long urgentCount;
 }

@@ -27,7 +27,14 @@ public class TaskResponse {
     private List<String> tags;
     private List<SubTaskResponse> subtasks;
     private Integer order;
+    private Long version;
+    private String recurrenceRule;
+    private LocalDateTime reminderAt;
+    private String assigneeEmail;
+    private String recurrenceSeriesId;
+    private String recurrenceParentId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private LocalDateTime completedAt;
+    private LocalDateTime deletedAt;
 }

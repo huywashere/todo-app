@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: jdbc:h2:file:${DEMO_DB_PATH:./data/tododb};MODE=PostgreSQL;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ${DEMO_DB_PASSWORD:demo-only}
+  jpa:
+    hibernate:
+      ddl-auto: update
+  flyway:
+    enabled: false
+
+app:
+  seed:
+    enabled: true

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import {
   CheckSquare,
   Calendar,
@@ -10,9 +10,12 @@ import {
   RefreshCw,
   Bell,
   Sun,
-  Moon
+  Moon,
+  LogOut,
+  Download,
+  Upload
 } from 'lucide-react';
-import type { MainNavTab, ThemeMode } from '../types/todo';
+import type { MainNavTab, SyncState, ThemeMode } from '../types/todo';
 
 interface TickTickRailProps {
   activeTab: MainNavTab;
@@ -20,7 +23,16 @@ interface TickTickRailProps {
   theme: ThemeMode;
   onThemeToggle: () => void;
   onSync: () => void;
+  onExport: () => void;
+  onImport: (file: File) => void;
+  onNotifications: () => void;
+  unreadNotifications: number;
   isBackendConnected?: boolean;
+  syncState: SyncState;
+  pendingSyncCount: number;
+  userName: string;
+  onLogout: () => void;
+  onAccount: () => void;
 }
 
 export const TickTickRail: React.FC<TickTickRailProps> = ({
@@ -29,8 +41,19 @@ export const TickTickRail: React.FC<TickTickRailProps> = ({
   theme,
   onThemeToggle,
   onSync,
-  isBackendConnected
+  onExport,
+  onImport,
+  onNotifications,
+  unreadNotifications,
+  isBackendConnected,
+  syncState,
+  pendingSyncCount,
+  userName,
+  onLogout,
+  onAccount
 }) => {
+  const importInputRef = useRef<HTMLInputElement>(null);
+
   return (
     <aside className="tt-rail">
       <div className="tt-rail-top">
@@ -39,8 +62,8 @@ export const TickTickRail: React.FC<TickTickRailProps> = ({
           type="button"
           className="tt-logo-btn"
           onClick={() => onTabChange('tasks')}
-          title="TickTick Home"
-          aria-label="TickTick Home"
+          title="FocusFlow Home"
+          aria-label="FocusFlow Home"
         >
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
             <circle cx="12" cy="12" r="10" stroke="#FAAD14" strokeWidth="2.5" />
@@ -103,8 +126,8 @@ export const TickTickRail: React.FC<TickTickRailProps> = ({
 
           <button
             type="button"
-            className="tt-rail-btn"
-            onClick={() => onTabChange('tasks')}
+            className={`tt-rail-btn ${activeTab === 'achievements' ? 'active' : ''}`}
+            onClick={() => onTabChange('achievements')}
             title="Achievements (Thống kê & Thành tựu)"
           >
             <Star size={20} />
@@ -126,13 +149,33 @@ export const TickTickRail: React.FC<TickTickRailProps> = ({
           type="button"
           className="tt-rail-btn"
           onClick={onSync}
-          title="Đồng bộ đám mây (Sync)"
+          title={pendingSyncCount ? `Đồng bộ ${pendingSyncCount} thay đổi` : 'Đồng bộ ngay'}
         >
-          <RefreshCw size={18} />
+          <RefreshCw size={18} className={syncState === 'syncing' ? 'spin' : ''} />
         </button>
+
+        <button type="button" className="tt-rail-btn" onClick={onExport} title="Xuất bản sao lưu JSON">
+          <Download size={17} />
+        </button>
+
+        <button type="button" className="tt-rail-btn" onClick={() => importInputRef.current?.click()} title="Nhập bản sao lưu JSON">
+          <Upload size={17} />
+        </button>
+        <input
+          ref={importInputRef}
+          type="file"
+          accept="application/json,.json"
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) onImport(file);
+            event.target.value = '';
+          }}
+        />
 
         {/* Backend Status Indicator */}
         <div
+          className={`sync-indicator ${syncState}`}
           style={{
             width: '8px',
             height: '8px',
@@ -141,15 +184,17 @@ export const TickTickRail: React.FC<TickTickRailProps> = ({
             boxShadow: isBackendConnected ? '0 0 8px #10B981' : 'none',
             margin: '0.25rem 0'
           }}
-          title={isBackendConnected ? 'Đã kết nối Spring Boot Backend (Port 8085)' : 'Chế độ ngoại tuyến (Local Storage)'}
+          title={syncState === 'syncing' ? `Đang đồng bộ ${pendingSyncCount} thay đổi` : isBackendConnected ? 'Dữ liệu đã đồng bộ' : 'Chế độ ngoại tuyến — thay đổi sẽ được xếp hàng'}
         />
 
         <button
           type="button"
-          className="tt-rail-btn"
+          className="tt-rail-btn notification-rail-btn"
+          onClick={onNotifications}
           title="Thông báo"
         >
           <Bell size={18} />
+          {unreadNotifications > 0 && <span className="rail-badge">{Math.min(unreadNotifications, 9)}</span>}
         </button>
 
         <button
@@ -160,6 +205,11 @@ export const TickTickRail: React.FC<TickTickRailProps> = ({
         >
           {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
         </button>
+
+        <button type="button" className="tt-user-avatar" onClick={onAccount} title={`${userName} — Tài khoản`} aria-label="Mở tài khoản">
+          <span>{userName.slice(0, 1).toUpperCase()}</span>
+        </button>
+        <button type="button" className="tt-rail-btn" onClick={onLogout} title="Đăng xuất" aria-label="Đăng xuất"><LogOut size={16} /></button>
       </div>
     </aside>
   );

@@ -1,0 +1,46 @@
+package com.todoapp.security;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+import com.todoapp.repository.UserRepository;
+
+import java.io.IOException;
+import java.util.List;
+
+@Component
+@RequiredArgsConstructor
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private final JwtService jwtService;
+    private final UserRepository userRepository;
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+            throws ServletException, IOException {
+        String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
+        if (authorization != null && authorization.startsWith("Bearer ")) {
+            try {
+                AuthenticatedUser claims = jwtService.parse(authorization.substring(7));
+                AuthenticatedUser user = userRepository.findById(claims.id())
+                        .filter(com.todoapp.entity.UserEntity::isEnabled)
+                        .map(entity -> new AuthenticatedUser(entity.getId(), entity.getEmail(), entity.getDisplayName(), entity.getRole()))
+                        .orElseThrow(() -> new IllegalArgumentException("Account disabled"));
+                UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                        user, null, List.of(new SimpleGrantedAuthority("ROLE_" + user.role())));
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+            } catch (IllegalArgumentException ignored) {
+                SecurityContextHolder.clearContext();
+            }
+        }
+        chain.doFilter(request, response);
+    }
+}
