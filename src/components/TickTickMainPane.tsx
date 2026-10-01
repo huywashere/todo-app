@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpDown, Check, ChevronDown, Columns3, LayoutList, Menu, MoreHorizontal, Plus, Search, X } from 'lucide-react';
+import { ArrowUpDown, Check, CheckSquare2, ChevronDown, Columns3, LayoutList, Menu, MoreHorizontal, Plus, Search, Square, Trash2, X } from 'lucide-react';
 import { addDays, localDateKey } from '../utils/date';
 import type { ActiveListType, Task, TaskList, TaskPriority, TaskStatus, ViewMode } from '../types/todo';
 
@@ -17,6 +17,8 @@ interface TickTickMainPaneProps {
   onToggleSidebar: () => void;
   onReorderTasks: (draggedId: string, targetId: string, newStatus?: TaskStatus) => void;
   onMoveStatus: (taskId: string, status: TaskStatus) => void;
+  onBulkDelete?: (ids: string[]) => void;
+  onBulkComplete?: (ids: string[]) => void;
 }
 
 const priorityRank: Record<TaskPriority, number> = { urgent: 0, high: 1, medium: 2, low: 3, none: 4 };
@@ -24,6 +26,7 @@ const priorityRank: Record<TaskPriority, number> = { urgent: 0, high: 1, medium:
 export const TickTickMainPane: React.FC<TickTickMainPaneProps> = ({
   activeList, lists, tasks, selectedTaskId, viewMode, quickAddNonce, onViewModeChange,
   onSelectTask, onToggleTask, onAddTask, onToggleSidebar, onReorderTasks, onMoveStatus,
+  onBulkDelete, onBulkComplete,
 }) => {
   const [quickTitle, setQuickTitle] = useState('');
   const [quickTime, setQuickTime] = useState('');
@@ -31,10 +34,17 @@ export const TickTickMainPane: React.FC<TickTickMainPaneProps> = ({
   const [query, setQuery] = useState('');
   const [priority, setPriority] = useState<'all' | TaskPriority>('all');
   const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const quickInputRef = useRef<HTMLInputElement>(null);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ today: true, tomorrow: true, next7days: true, other: true });
 
   useEffect(() => { if (quickAddNonce > 0) quickInputRef.current?.focus(); }, [quickAddNonce]);
+
+  const toggleSelect = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  };
+  const clearSelection = () => setSelectedIds(new Set());
 
   const title = useMemo(() => {
     const smart: Record<string, string> = { today: 'Today', tomorrow: 'Tomorrow', next7days: 'Next 7 Days', assigned: 'Assigned to Me', inbox: 'Inbox', completed: 'Completed', trash: 'Trash' };
@@ -77,14 +87,25 @@ export const TickTickMainPane: React.FC<TickTickMainPaneProps> = ({
     <div
       key={task.id}
       draggable
-      className={`tt-task-row ${selectedTaskId === task.id ? 'active' : ''} ${task.status === 'completed' ? 'completed' : ''}`}
+      className={`tt-task-row ${selectedTaskId === task.id ? 'active' : ''} ${task.status === 'completed' ? 'completed' : ''} ${selectedIds.has(task.id) ? 'bulk-selected' : ''}`}
       onDragStart={event => { setDraggedId(task.id); event.dataTransfer.setData('text/plain', task.id); }}
       onDragEnd={() => setDraggedId(null)}
       onDragOver={event => event.preventDefault()}
       onDrop={event => { event.preventDefault(); const source = event.dataTransfer.getData('text/plain') || draggedId; if (source && source !== task.id) onReorderTasks(source, task.id, task.status); setDraggedId(null); }}
-      onClick={() => onSelectTask(task.id)}
+      onClick={() => { if (selectedIds.size > 0) { setSelectedIds(prev => { const next = new Set(prev); if (next.has(task.id)) next.delete(task.id); else next.add(task.id); return next; }); } else { onSelectTask(task.id); } }}
     >
       <div className="tt-task-left">
+        <button
+          type="button"
+          className="tt-select-checkbox"
+          onClick={(e) => toggleSelect(task.id, e)}
+          aria-label={selectedIds.has(task.id) ? 'Bỏ chọn' : 'Chọn task'}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 2px', display: 'flex', alignItems: 'center' }}
+        >
+          {selectedIds.has(task.id)
+            ? <CheckSquare2 size={15} color="#4772FA" />
+            : <Square size={15} style={{ opacity: 0.3 }} />}
+        </button>
         <button type="button" className={`tt-checkbox ${task.status === 'completed' ? 'checked' : ''}`} onClick={event => { event.stopPropagation(); onToggleTask(task.id); }} aria-label="Đổi trạng thái">
           {task.status === 'completed' && <Check size={12} strokeWidth={3} />}
         </button>
@@ -118,6 +139,26 @@ export const TickTickMainPane: React.FC<TickTickMainPaneProps> = ({
           <button type="button" className="icon-btn-ghost" onClick={() => { const expand = Object.values(expandedGroups).some(value => !value); setExpandedGroups({ today: expand, tomorrow: expand, next7days: expand, other: expand }); }}><MoreHorizontal size={17} /></button>
         </div>
       </div>
+
+      {/* Bulk action toolbar */}
+      {selectedIds.size > 0 && (
+        <div className="bulk-action-bar">
+          <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--tt-text)' }}>{selectedIds.size} đã chọn</span>
+          {onBulkComplete && (
+            <button type="button" className="bulk-action-btn bulk-complete" onClick={() => { onBulkComplete([...selectedIds]); clearSelection(); }}>
+              <Check size={14} /> Hoàn thành
+            </button>
+          )}
+          {onBulkDelete && (
+            <button type="button" className="bulk-action-btn bulk-delete" onClick={() => { onBulkDelete([...selectedIds]); clearSelection(); }}>
+              <Trash2 size={14} /> Xóa
+            </button>
+          )}
+          <button type="button" className="bulk-action-btn" onClick={clearSelection}>
+            <X size={14} /> Bỏ chọn
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="quick-add-box">
         <Plus size={18} /><input ref={quickInputRef} className="quick-add-input" placeholder="+ Add task" value={quickTitle} onChange={event => setQuickTitle(event.target.value)} />

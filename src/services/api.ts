@@ -276,6 +276,36 @@ export const apiService = {
     return request<TaskStats>('/tasks/stats');
   },
 
+  async exportCalendar(workspaceId?: string): Promise<void> {
+    const params = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : '';
+    const session = authService.getSession();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (session) headers['Authorization'] = `Bearer ${session.accessToken}`;
+    const response = await fetch(`${API_BASE_URL}/tasks/calendar.ics${params}`, { headers });
+    if (!response.ok) throw new Error('Failed to export calendar');
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'focusflow-tasks.ics';
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  async bulkDelete(taskIds: string[]): Promise<void> {
+    return request<void>('/tasks/bulk', {
+      method: 'PATCH',
+      body: JSON.stringify({ taskIds, action: 'DELETE' }),
+    });
+  },
+
+  async bulkComplete(taskIds: string[]): Promise<void> {
+    return request<void>('/tasks/bulk', {
+      method: 'PATCH',
+      body: JSON.stringify({ taskIds, action: 'COMPLETE' }),
+    });
+  },
+
   async getNotifications(): Promise<TaskNotification[]> {
     return request<TaskNotification[]>('/notifications');
   },

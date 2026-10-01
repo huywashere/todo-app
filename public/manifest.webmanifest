@@ -1,12 +1,36 @@
 {
   "name": "FocusFlow Task Manager",
   "short_name": "FocusFlow",
-  "description": "Offline-first personal task management",
+  "description": "Offline-first personal task management with Kanban, Calendar, Pomodoro, and team workspaces.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#111827",
   "theme_color": "#4772fa",
+  "categories": ["productivity", "utilities"],
   "icons": [
     { "src": "/focusflow-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Today's Tasks",
+      "short_name": "Today",
+      "description": "View tasks due today",
+      "url": "/?list=today",
+      "icons": [{ "src": "/focusflow-icon.svg", "sizes": "any" }]
+    },
+    {
+      "name": "Add Task",
+      "short_name": "Add",
+      "description": "Quickly add a new task",
+      "url": "/?quickadd=1",
+      "icons": [{ "src": "/focusflow-icon.svg", "sizes": "any" }]
+    },
+    {
+      "name": "Pomodoro Timer",
+      "short_name": "Focus",
+      "description": "Start a focus session",
+      "url": "/?tab=pomodoro",
+      "icons": [{ "src": "/focusflow-icon.svg", "sizes": "any" }]
+    }
   ]
 }

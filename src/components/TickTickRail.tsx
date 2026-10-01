@@ -13,7 +13,8 @@ import {
   Moon,
   LogOut,
   Download,
-  Upload
+  Upload,
+  CalendarDays
 } from 'lucide-react';
 import type { MainNavTab, SyncState, ThemeMode } from '../types/todo';
 
@@ -24,6 +25,7 @@ interface TickTickRailProps {
   onThemeToggle: () => void;
   onSync: () => void;
   onExport: () => void;
+  onExportCalendar?: () => void;
   onImport: (file: File) => void;
   onNotifications: () => void;
   unreadNotifications: number;
@@ -42,6 +44,7 @@ export const TickTickRail: React.FC<TickTickRailProps> = ({
   onThemeToggle,
   onSync,
   onExport,
+  onExportCalendar,
   onImport,
   onNotifications,
   unreadNotifications,
@@ -157,6 +160,12 @@ export const TickTickRail: React.FC<TickTickRailProps> = ({
         <button type="button" className="tt-rail-btn" onClick={onExport} title="Xuất bản sao lưu JSON">
           <Download size={17} />
         </button>
+
+        {onExportCalendar && (
+          <button type="button" className="tt-rail-btn" onClick={onExportCalendar} title="Xuất lịch iCal (.ics)">
+            <CalendarDays size={17} />
+          </button>
+        )}
 
         <button type="button" className="tt-rail-btn" onClick={() => importInputRef.current?.click()} title="Nhập bản sao lưu JSON">
           <Upload size={17} />

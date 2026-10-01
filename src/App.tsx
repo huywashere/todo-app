@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { AccountPanel } from './components/AccountPanel';
 import { AuthScreen } from './components/AuthScreen';
 import { CommandPalette } from './components/CommandPalette';
@@ -43,7 +44,7 @@ function TaskWorkspace({ session, onExit, onUserUpdated }: WorkspaceProps) {
     setActiveTab, setActiveList, setSelectedTaskId, setTheme, addTask, updateTask,
     toggleTaskStatus, deleteTask, restoreTask, toggleSubTask, addSubTask, deleteSubTask, addList,
     deleteList, removeToast, showToast, exportBackup, importBackup, syncNow,
-    permanentlyDeleteTask, reorderTasks, moveTaskToStatus, clearCompleted,
+    permanentlyDeleteTask, reorderTasks, moveTaskToStatus, clearCompleted, duplicateTask,
   } = useTasks(syncIdentity, session?.user.email, activeWorkspaceId);
 
   useEffect(() => {
@@ -115,6 +116,7 @@ function TaskWorkspace({ session, onExit, onUserUpdated }: WorkspaceProps) {
           onThemeToggle={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
           onSync={() => void syncNow()}
           onExport={exportBackup}
+          onExportCalendar={() => void apiService.exportCalendar(activeWorkspaceId).catch(() => showToast('Không thể xuất lịch. Vui lòng thử lại.', 'error'))}
           onImport={(file) => void file.text().then(importBackup)}
           onNotifications={() => { setNotificationsOpen(true); void loadNotifications(false); }}
           unreadNotifications={notifications.filter(item => !item.readAt).length}
@@ -174,6 +176,14 @@ function TaskWorkspace({ session, onExit, onUserUpdated }: WorkspaceProps) {
             onToggleSidebar={() => setSidebarOpen(value => !value)}
             onReorderTasks={reorderTasks}
             onMoveStatus={moveTaskToStatus}
+            onBulkComplete={(ids) => {
+              ids.forEach(id => toggleTaskStatus(id));
+              showToast(`${ids.length} task đã hoàn thành`, 'success');
+            }}
+            onBulkDelete={(ids) => {
+              ids.forEach(id => deleteTask(id));
+              showToast(`${ids.length} task đã xóa`, 'info');
+            }}
           />
         )}
 
@@ -188,6 +198,7 @@ function TaskWorkspace({ session, onExit, onUserUpdated }: WorkspaceProps) {
           onToggleSubtask={toggleSubTask}
           onAddSubtask={addSubTask}
           onDeleteSubtask={deleteSubTask}
+          onDuplicateTask={(id) => { duplicateTask(id); }}
           onClose={() => setSelectedTaskId(null)}
         />}
       </div>
@@ -262,12 +273,14 @@ export function App() {
   };
 
   return (
-    <TaskWorkspace
-      key={session?.user.id || 'offline'}
-      session={session}
-      onExit={() => void exitWorkspace()}
-      onUserUpdated={(user) => setSession(current => current ? { ...current, user } : current)}
-    />
+    <ErrorBoundary>
+      <TaskWorkspace
+        key={session?.user.id || 'offline'}
+        session={session}
+        onExit={() => void exitWorkspace()}
+        onUserUpdated={(user) => setSession(current => current ? { ...current, user } : current)}
+      />
+    </ErrorBoundary>
   );
 }
 

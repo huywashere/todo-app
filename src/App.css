@@ -967,3 +967,41 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+/* =========================================================
+   Bulk Selection
+   ========================================================= */
+.tt-task-row.bulk-selected {
+  background: color-mix(in srgb, var(--tt-accent, #4772FA) 12%, transparent) !important;
+  border-left: 2px solid var(--tt-accent, #4772FA);
+}
+
+.bulk-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--tt-surface);
+  border-bottom: 1px solid var(--tt-border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.bulk-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--tt-border);
+  background: var(--tt-bg-main);
+  color: var(--tt-text);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.bulk-action-btn:hover { background: var(--tt-hover); }
+.bulk-action-btn.bulk-complete { border-color: #10B981; color: #10B981; }
+.bulk-action-btn.bulk-complete:hover { background: color-mix(in srgb, #10B981 15%, transparent); }
+.bulk-action-btn.bulk-delete { border-color: #F5222D; color: #F5222D; }
+.bulk-action-btn.bulk-delete:hover { background: color-mix(in srgb, #F5222D 15%, transparent); }

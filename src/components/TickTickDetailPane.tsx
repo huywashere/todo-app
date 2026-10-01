@@ -12,7 +12,8 @@ import {
   RotateCcw,
   MessageCircle,
   Paperclip,
-  Download
+  Download,
+  Copy
 } from 'lucide-react';
 import type { Task, TaskPriority, TaskList, TaskAttachment, TaskComment } from '../types/todo';
 import { apiService } from '../services/api';
@@ -39,6 +40,7 @@ interface TickTickDetailPaneProps {
   onToggleSubtask: (taskId: string, subtaskId: string) => void;
   onAddSubtask: (taskId: string, title: string) => void;
   onDeleteSubtask: (taskId: string, subtaskId: string) => void;
+  onDuplicateTask: (id: string) => void;
   onClose: () => void;
 }
 
@@ -53,14 +55,29 @@ export const TickTickDetailPane: React.FC<TickTickDetailPaneProps> = ({
   onToggleSubtask,
   onAddSubtask,
   onDeleteSubtask,
+  onDuplicateTask,
   onClose
 }) => {
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
   const [commentBody, setCommentBody] = useState('');
   const [collaborationError, setCollaborationError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Close more menu when clicking outside
+  useEffect(() => {
+    if (!moreMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setMoreMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [moreMenuOpen]);
 
   useEffect(() => {
     if (!task?.id || task.deletedAt) { setComments([]); setAttachments([]); return; }
@@ -157,10 +174,29 @@ export const TickTickDetailPane: React.FC<TickTickDetailPaneProps> = ({
           </button>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-          <button type="button" className="icon-btn-ghost" title="Tùy chọn">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', position: 'relative' }} ref={moreMenuRef}>
+          <button type="button" className="icon-btn-ghost" title="Tùy chọn" onClick={() => setMoreMenuOpen(v => !v)}>
             <MoreHorizontal size={16} />
           </button>
+          {moreMenuOpen && (
+            <div style={{
+              position: 'absolute', top: '100%', right: 0, zIndex: 100,
+              background: 'var(--tt-surface, #1f2937)', border: '1px solid var(--tt-border, #374151)',
+              borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.3)', minWidth: 160, padding: '4px 0'
+            }}>
+              <button
+                type="button"
+                onClick={() => { onDuplicateTask(task.id); setMoreMenuOpen(false); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.5rem',
+                  width: '100%', padding: '8px 14px', background: 'none', border: 'none',
+                  color: 'var(--tt-text, #f9fafb)', fontSize: '0.875rem', cursor: 'pointer', textAlign: 'left'
+                }}
+              >
+                <Copy size={14} /> Nhân bản task
+              </button>
+            </div>
+          )}
           <button type="button" className="icon-btn-ghost" onClick={onClose} title="Đóng bảng chi tiết">
             <X size={16} />
           </button>

@@ -2,6 +2,7 @@ package com.todoapp.config;
 
 import com.todoapp.security.JwtAuthenticationFilter;
 import com.todoapp.security.AuthenticationRateLimitFilter;
+import com.todoapp.security.ApiRateLimitFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,6 +22,7 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final AuthenticationRateLimitFilter authenticationRateLimitFilter;
+    private final ApiRateLimitFilter apiRateLimitFilter;
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -42,6 +44,7 @@ public class SecurityConfig {
                                 "/api/v1/auth/reset-password",
                                 "/actuator/health/**").permitAll()
                         .anyRequest().authenticated())
+                .addFilterBefore(apiRateLimitFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(authenticationRateLimitFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
